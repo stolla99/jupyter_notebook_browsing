@@ -7,8 +7,22 @@ from networkx.drawing.nx_agraph import graphviz_layout
 
 
 def node_str_generator(node):
-    print("dd")
-    return type(node).__name__ + str(node)
+    if isinstance(node, ast.Module):
+        return "root" + str(node)
+    elif isinstance(node, ast.Assign):
+        return "=" + str(node)
+    elif isinstance(node, ast.Name):
+        # node = ast.Name(node)
+        attributes = node.__dict__
+        ident = attributes['id']
+        return "var: " + ident + str(node)
+    elif isinstance(node, ast.Constant):
+        attributes = node.__dict__
+        value = attributes['value']
+        return "const: " + str(value) + str(node)
+    else:
+        print("dd")
+        return type(node).__name__ + str(node)
 
 
 # Traverse over tree and add every new node to the list and extend edge list with every
@@ -44,7 +58,7 @@ for index, file in enumerate(files):
     print(index, file, os.path.getsize(root + file))
 
 # TODO: file index user input
-file_in_use = files[0]
+file_in_use = files[1]
 # File which is later read
 file = os.open(root + file_in_use, os.O_RDONLY)
 num_bytes = os.path.getsize(root + file_in_use)
