@@ -1,46 +1,66 @@
 import ast
 import os
+from typing import Any, Callable
+
+import pygraphviz as pgv
+import difflib as diff
 import networkx as nx
 import matplotlib.pyplot as plt
 from colorama import Fore, Back, Style
 from networkx.drawing.nx_agraph import graphviz_layout
 
 
-def node_str_generator(node):
-    if isinstance(node, ast.Module):
-        return "root" + str(node)
-    elif isinstance(node, ast.Assign):
-        return "=" + str(node)
-    elif isinstance(node, ast.Name):
-        # node = ast.Name(node)
-        attributes = node.__dict__
+def node_str_generator(ast_node):
+    attribute_dict = dict()
+    attribute_dict["margin"] = "0,0"
+    label = ""
+    if isinstance(ast_node, ast.Module):
+        label = "root"
+        attribute_dict["label"] = label
+        return label + str(ast_node), attribute_dict
+    elif isinstance(ast_node, ast.Assign):
+        label = "="
+        attribute_dict["label"] = label
+        attribute_dict["shape"] = "underline"
+        return label + str(ast_node), attribute_dict
+    elif isinstance(ast_node, ast.Name):
+        attributes = ast_node.__dict__
         ident = attributes['id']
-        return "var: " + ident + str(node)
-    elif isinstance(node, ast.Constant):
-        attributes = node.__dict__
+        label = "var: " + ident
+        attribute_dict["label"] = label
+        return label + str(ast_node), attribute_dict
+    elif isinstance(ast_node, ast.Constant):
+        attributes = ast_node.__dict__
         value = attributes['value']
-        return "const: " + str(value) + str(node)
+        label = "const: " + str(value)
+        attribute_dict["label"] = label
+        return label + str(ast_node), attribute_dict
     else:
-        print("dd")
-        return type(node).__name__ + str(node)
+        label = type(ast_node).__name__
+        attribute_dict["label"] = label
+        return label + str(ast_node), attribute_dict
+
+
+# Return false if node is from type ast.Load or ast.Store
+type_check_ld_st: Callable[[ast.AST], bool] = lambda arg: not (isinstance(arg, ast.Load) or isinstance(arg, ast.Store))
 
 
 # Traverse over tree and add every new node to the list and extend edge list with every
 # traversal in child nodes
 def node_traversal(nd):
-    node_str = node_str_generator(nd)
-    if not (node_str in node_list):
-        node_list.append(node_str)
+    node_str, attribute_dict = node_str_generator(nd)
+    if not (node_str in node_list) and type_check_ld_st(nd):
+        node_list.append((node_str, attribute_dict))
     if isinstance(nd, ast.AST):
         lst = ast.iter_fields(nd)
         for field, value in lst:
             if isinstance(value, list):
                 for child in value:
-                    if isinstance(child, ast.AST):
-                        edge_list.append((node_str_generator(nd), node_str_generator(child)))
+                    if isinstance(child, ast.AST) and type_check_ld_st(child):
+                        edge_list.append((node_str_generator(nd)[0], node_str_generator(child)[0]))
                         node_traversal(child)
-            elif isinstance(value, ast.AST):
-                edge_list.append((node_str_generator(nd), node_str_generator(value)))
+            elif isinstance(value, ast.AST) and type_check_ld_st(value):
+                edge_list.append((node_str_generator(nd)[0], node_str_generator(value)[0]))
                 node_traversal(value)
 
 
@@ -72,30 +92,25 @@ print(byte_str)
 ast_tree = ast.parse(source=byte_str)
 node_traversal(ast_tree)
 
-# Create graph from edge list and nodelist using the dot-layout
 # TODO: Style tree such it can be read properly
-plt.title('AST, file: ' + file_in_use)
+
+# Clean node and edge list
 
 
-graph = nx.DiGraph()
-graph.add_edges_from(edge_list)
-pos = graphviz_layout(graph, prog='dot')
-labels = dict()
-for node in node_list:
-    labels[node] = node.split('<')[0]
-nx.draw(graph, pos,
-        with_labels=True,
-        labels=labels,
-        edgecolors='none',
-        node_color='lightgray',
-        font_size=10,
-        # so^>v<dph8
-        node_shape='o',
-        node_size=400)
+# Create graph from edge list and nodelist using the dot-layout
+G = pgv.AGraph(strict=False, directed=True, label="ast_" + file_in_use)
+# Set some default attributes
+G.node_attr["shape"] = "Mrecord"
 
-# Save plot in file and show in IDE
-plt.savefig('ast_' + file_in_use + '.png')
-plt.show()
+
+# Add edges and nodes with labels
+for (node, attr_dict) in node_list:
+    G.add_node(node, **attr_dict)
+G.add_edges_from(edge_list)
+G.layout(prog='dot')
+
+
+G.draw('ast_' + file_in_use + '.png')
 
 # Close file reader
 os.close(file)
