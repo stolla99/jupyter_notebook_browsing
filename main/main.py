@@ -15,24 +15,24 @@ def node_str_generator(ast_node):
     attribute_dict["margin"] = "0,0"
     label = ""
     if isinstance(ast_node, ast.Module):
-        label = "root"
+        label = "Module"
         attribute_dict["label"] = label
         return label + str(ast_node), attribute_dict
     elif isinstance(ast_node, ast.Assign):
-        label = "="
+        label = "Assign\\n="
         attribute_dict["label"] = label
-        attribute_dict["shape"] = "underline"
+        # attribute_dict["shape"] = "underline"
         return label + str(ast_node), attribute_dict
     elif isinstance(ast_node, ast.Name):
         attributes = ast_node.__dict__
         ident = attributes['id']
-        label = "var: " + ident
+        label = "Name\\n" + ident
         attribute_dict["label"] = label
         return label + str(ast_node), attribute_dict
     elif isinstance(ast_node, ast.Constant):
         attributes = ast_node.__dict__
         value = attributes['value']
-        label = "const: " + str(value)
+        label = "Constant\\n" + str(value)
         attribute_dict["label"] = label
         return label + str(ast_node), attribute_dict
     else:
@@ -78,7 +78,7 @@ for index, file in enumerate(files):
     print(index, file, os.path.getsize(root + file))
 
 # TODO: file index user input
-file_in_use = files[1]
+file_in_use = files[0]
 # File which is later read
 file = os.open(root + file_in_use, os.O_RDONLY)
 num_bytes = os.path.getsize(root + file_in_use)
@@ -92,8 +92,6 @@ print(byte_str)
 ast_tree = ast.parse(source=byte_str)
 node_traversal(ast_tree)
 
-# TODO: Style tree such it can be read properly
-
 # Clean node and edge list
 
 
@@ -101,7 +99,7 @@ node_traversal(ast_tree)
 G = pgv.AGraph(strict=False, directed=True, label="ast_" + file_in_use)
 # Set some default attributes
 G.node_attr["shape"] = "Mrecord"
-
+G.graph_attr["rank"] = "same"
 
 # Add edges and nodes with labels
 for (node, attr_dict) in node_list:
@@ -114,3 +112,4 @@ G.draw('ast_' + file_in_use + '.png')
 
 # Close file reader
 os.close(file)
+quit("EOF")
