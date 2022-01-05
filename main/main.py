@@ -1,13 +1,9 @@
 import ast
 import os
-from typing import Any, Callable
+from typing import Callable
 
 import pygraphviz as pgv
-import difflib as diff
-import networkx as nx
-import matplotlib.pyplot as plt
 from colorama import Fore, Back, Style
-from networkx.drawing.nx_agraph import graphviz_layout
 
 
 def node_str_generator(ast_node):
@@ -64,9 +60,62 @@ def node_traversal(nd):
                 node_traversal(value)
 
 
+# Filter list by given function f
+def filter_list(l, f=lambda x: bool(x)):
+    return [i for i, x in enumerate(l) if f(x)]
+
+
+# Extract the edges based on the root node for the CFG
+def extract_control_flow(nd: ast.AST, neighbors: list, ref_nodes: list):
+    attr_edges_dict = {'color': '#00e629'}
+    if len(ref_nodes) > 0 and len(neighbors) == 0 \
+            and not list(nd._fields).__contains__('body') and not list(nd._fields).__contains__('value'):
+        nd_curr = ref_nodes.pop(0)
+        edge_list_cfg.append(((nd, nd_curr), attr_edges_dict))
+        nd = nd_curr
+    if isinstance(nd, ast.Module):
+        children = nd.__dict__['body']
+        child = children.pop(0)
+        edge_list_cfg.append(((nd, child), attr_edges_dict))
+        extract_control_flow(child, children, ref_nodes)
+    elif isinstance(nd, ast.Assign or ast.AnnAssign or ast.AugAssign):
+        if not len(neighbors) == 0:
+            neighbor = neighbors.pop(0)
+            edge_list_cfg.append(((nd, neighbor), attr_edges_dict))
+            extract_control_flow(neighbor, neighbors, ref_nodes)
+    elif isinstance(nd, ast.If):
+        test = nd.__dict__['test']
+        edge_list_cfg.append(((nd, test), attr_edges_dict))
+
+        body = nd.__dict__['body']
+        nd_curr = body.pop(0)
+        attr_edges_dict = dict()
+        attr_edges_dict['color'] = '#00e629'
+        attr_edges_dict['label'] = 'T'
+        edge_list_cfg.append(((test, nd_curr), attr_edges_dict))
+        if len(neighbors) > 0:
+            ref_nodes.insert(0, neighbors.pop(0))
+        extract_control_flow(nd_curr, body, ref_nodes)
+
+        orelse = nd.__dict__['orelse']
+        nd_curr = orelse.pop(0)
+        attr_edges_dict = dict()
+        attr_edges_dict['label'] = 'F'
+        attr_edges_dict['color'] = '#ff0039'
+        edge_list_cfg.append(((test, nd_curr), attr_edges_dict))
+        if len(neighbors) > 0:
+            ref_nodes.insert(0, neighbors.pop(0))
+        extract_control_flow(nd_curr, orelse, ref_nodes)
+    elif isinstance(nd, ast.Expr):
+        child = nd.__dict__['value']
+        edge_list_cfg.append(((nd, child), attr_edges_dict))
+        extract_control_flow(child, neighbors, ref_nodes.copy())
+
+
 # Lists of node in AST and edges
 node_list = []
 edge_list = []
+edge_list_cfg = []
 # Define root directory and get list of files in that specific directory
 root = '../code_samples/'
 files = os.listdir(path=root)
@@ -105,6 +154,11 @@ G.graph_attr["rank"] = "same"
 for (node, attr_dict) in node_list:
     G.add_node(node, **attr_dict)
 G.add_edges_from(edge_list)
+
+# TODO extract control flow graph
+extract_control_flow(ast_tree, [], [])
+for ((x, y), attr) in edge_list_cfg:
+    G.add_edge(node_str_generator(x)[0], node_str_generator(y)[0], **attr)
 G.layout(prog='dot')
 
 
