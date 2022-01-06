@@ -68,8 +68,7 @@ def filter_list(l, f=lambda x: bool(x)):
 # Extract the edges based on the root node for the CFG
 def extract_control_flow(nd: ast.AST, neighbors: list, ref_nodes: list):
     attr_edges_dict = {'color': '#00e629'}
-    if len(ref_nodes) > 0 and len(neighbors) == 0 \
-            and not list(nd._fields).__contains__('body') and not list(nd._fields).__contains__('value'):
+    if len(ref_nodes) > 0 and len(neighbors) == 0 and not isinstance(nd, ast.If or ast.While or ast.For):
         nd_curr = ref_nodes.pop(0)
         edge_list_cfg.append(((nd, nd_curr), attr_edges_dict))
         nd = nd_curr
@@ -95,21 +94,32 @@ def extract_control_flow(nd: ast.AST, neighbors: list, ref_nodes: list):
         edge_list_cfg.append(((test, nd_curr), attr_edges_dict))
         if len(neighbors) > 0:
             ref_nodes.insert(0, neighbors.pop(0))
-        extract_control_flow(nd_curr, body, ref_nodes)
+        extract_control_flow(nd_curr, body, ref_nodes.copy())
 
         orelse = nd.__dict__['orelse']
-        nd_curr = orelse.pop(0)
-        attr_edges_dict = dict()
-        attr_edges_dict['label'] = 'F'
-        attr_edges_dict['color'] = '#ff0039'
-        edge_list_cfg.append(((test, nd_curr), attr_edges_dict))
-        if len(neighbors) > 0:
-            ref_nodes.insert(0, neighbors.pop(0))
-        extract_control_flow(nd_curr, orelse, ref_nodes)
+        if len(orelse) > 0:
+            nd_curr = orelse.pop(0)
+            attr_edges_dict = dict()
+            attr_edges_dict['label'] = 'F'
+            attr_edges_dict['color'] = '#ff0039'
+            edge_list_cfg.append(((test, nd_curr), attr_edges_dict))
+            # if len(neighbors) > 0:
+            #    ref_nodes.insert(0, neighbors.pop(0))
+            extract_control_flow(nd_curr, orelse, ref_nodes.copy())
     elif isinstance(nd, ast.Expr):
+        # TODO: Bug over here
         child = nd.__dict__['value']
         edge_list_cfg.append(((nd, child), attr_edges_dict))
         extract_control_flow(child, neighbors, ref_nodes.copy())
+    elif isinstance(nd, ast.While):
+        neighbor = neighbors.pop(0)
+        body = nd.__dict__['body']
+        child = body.pop(0)
+        edge_list_cfg.append(((nd, child), attr_edges_dict))
+        edge_list_cfg.append(((body[-1], nd), attr_edges_dict.copy()))
+        edge_list_cfg.append(((nd, neighbor), attr_edges_dict.copy()))
+        extract_control_flow(child, body, [])
+        extract_control_flow(neighbor, neighbors, [])
 
 
 # Lists of node in AST and edges
@@ -127,7 +137,7 @@ for index, file in enumerate(files):
     print(index, file, os.path.getsize(root + file))
 
 # TODO: file index user input
-file_in_use = files[0]
+file_in_use = files[1]
 # File which is later read
 file = os.open(root + file_in_use, os.O_RDONLY)
 num_bytes = os.path.getsize(root + file_in_use)
