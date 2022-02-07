@@ -4,25 +4,31 @@ import pygraphviz as pgv
 from typing import Callable
 from nbformat import read, NO_CONVERT
 import itertools as iter
-from collections import Counter
 
-"""
-Return false if node is from type ast.Load or ast.Store
-"""
+
 type_check_ld_st: Callable[[ast.AST], bool] = lambda arg: not (isinstance(arg, ast.Load) or isinstance(arg, ast.Store)
                                                                or isinstance(arg, ast.operator)
                                                                or isinstance(arg, ast.unaryop))
 
-"""
-Docstring
-"""
+
 def node_str_generator(ast_node):
+    """
+
+    :param ast_node:
+    :return:
+    """
     attribute_dict = dict()
     attribute_dict["margin"] = "0,0"
     label = ""
     if isinstance(ast_node, ast.Module):
         label = "Module"
         attribute_dict["label"] = label
+        return label + str(ast_node), attribute_dict
+    elif isinstance(ast_node, ast.FunctionDef):
+        attributes = ast_node.__dict__
+        label = "FunctionDef\\n="
+        name = attributes['name']
+        attribute_dict["label"] = label + name
         return label + str(ast_node), attribute_dict
     elif isinstance(ast_node, ast.Assign):
         label = "Assign\\n="
@@ -68,6 +74,12 @@ def node_str_generator(ast_node):
         label = "keyword\\n" + "arg " + str(arg)
         attribute_dict["label"] = label
         return label + str(ast_node), attribute_dict
+    elif isinstance(ast_node, ast.arg):
+        attributes = ast_node.__dict__
+        arg = attributes['arg']
+        label = "arg\\n" + str(arg)
+        attribute_dict["label"] = label
+        return label + str(ast_node), attribute_dict
     elif isinstance(ast_node, ast.BinOp):
         attributes = ast_node.__dict__
         label = "BinOp\\n"
@@ -92,13 +104,11 @@ def node_str_generator(ast_node):
         return label + str(ast_node), attribute_dict
 
 
-"""
-Traverse over tree and add every new node to the list and extend edge list with every
-traversal in child nodes
-"""
-
-
 def node_traversal(nd):
+    """
+
+    :param nd:
+    """
     node_str, attribute_dict = node_str_generator(nd)
     if not (node_str in node_list) and type_check_ld_st(nd):
         node_list.append((node_str, attribute_dict))
@@ -147,11 +157,9 @@ for cell, i in iter.zip_longest(code_cells, range(len(code_cells))):
     edge_list.clear()
 
 # Create graph from edge list and nodelist using the dot-layout
-G = pgv.AGraph(strict=False, directed=True, label="ast_" + file)
+G = pgv.AGraph(strict=False, directed=True, label="ast_" + file, compound=True)
 # Set some default attributes
 G.node_attr['shape'] = 'Mrecord'
-G.graph_attr['rank'] = 'same'
-G.graph_attr['compound'] = True
 
 # Add edges and nodes with labels
 for cell_key in ast_dict.keys():
@@ -160,7 +168,10 @@ for cell_key in ast_dict.keys():
         G.add_node(node, **attr_dict)
     G.add_edges_from(cell_code[1])
 
-# Add clusters
+for cell_key in ast_dict.keys():
+    cell_code = ast_dict[cell_key]
+    name = 'Cell ' + cell_key
+    G.subgraph(list(map(lambda x: x[0], cell_code[0])), name="cluster"+cell_key, label=name)
 
 G.layout(prog='dot')
 G.draw('ast_' + file + '.png')
