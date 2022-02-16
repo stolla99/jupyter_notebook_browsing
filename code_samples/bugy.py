@@ -17,6 +17,7 @@ G = pgv.AGraph(title="hello", compound=True, directed=True, strict=False, rankdi
 G.add_node("1", label="x")
 G.add_node("2", label="x")
 G.add_edge("1", "2")
+G.subgraph(["1", "2"], rank="same")
 
 
 G.layout('dot')

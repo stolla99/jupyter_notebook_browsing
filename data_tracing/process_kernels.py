@@ -36,6 +36,7 @@ def node_str_generator(ast_node, current_cell):
     if isinstance(ast_node, ast.Module):
         label = "Module"
         attribute_dict["label"] = label
+        attribute_dict["style"] = "invis"
     elif isinstance(ast_node, ast.FunctionDef):
         attributes = ast_node.__dict__
         label = "FunctionDef\\n="
@@ -161,7 +162,7 @@ for cell, i in itertools.zip_longest(code_cells, range(len(code_cells))):
     edge_list.clear()
 
 # Create graph from edge list and nodelist using the dot-layout
-G = pgv.AGraph(strict=False, directed=True, label="ast_" + file, compound=True, rankdir="TB")
+G = pgv.AGraph(strict=False, directed=True, label="ast_" + file, compound=True, rankdir="TB", splines="polyline")
 # Set some default attributes
 G.node_attr['shape'] = 'Mrecord'
 
@@ -169,25 +170,24 @@ G.node_attr['shape'] = 'Mrecord'
 for cell_key in ast_dict.keys():
     cell_code = ast_dict[cell_key]
     # Adding cluster anchor nodes with the corresponding cell number (node_str, cell_num)
-    cluster_head_list.append((((cell_code[0])[0])[0], cell_key))
+    cluster_head_list.append(((cell_code[0])[0])[0])
     for (node, attr_dict) in cell_code[0]:
         G.add_node(node, **attr_dict)
-    G.add_edges_from(cell_code[1])
 
 for cell_key in ast_dict.keys():
     cell_code = ast_dict[cell_key]
     name = 'Cell ' + cell_key
-    G.subgraph(list(map(lambda elem: elem[0], cell_code[0])), name="cluster" + cell_key
-               , label=name, rank="same")
+    G.subgraph(list(map(lambda elem: elem[0], cell_code[0])), name="cluster"+cell_key, label=name, rank="same")
 
-# Add edges from cluster n to cluster n+1
-for x, y in pairwise(cluster_head_list):
-    cell_x = x[1]
-    cell_y = y[1]
-    G.add_edge(x[0], y[0], ltail="cluster" + cell_x, lhead="cluster" + cell_y, minlen=2)
+for cell_key in ast_dict.keys():
+    cell_code = ast_dict[cell_key]
+    for u, v in cell_code[1]:
+        if u in cluster_head_list:
+            G.add_edge(u, v, style="invis")
+        else:
+            G.add_edge(u, v)
 
+G.add_subgraph(cluster_head_list, rank="same")
 G.layout(prog='dot')
 G.draw('ast_' + file + '.png')
-del G
-
 quit("EOF")
