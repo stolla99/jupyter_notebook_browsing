@@ -6,7 +6,8 @@ class ControlFlowExtractor:
     Class to extract the control based on an AST.
     """
 
-    def __init__(self):
+    def __init__(self, fan_out=1000):
+        self.fan_out = fan_out
         self.edge_list_cfg = []
 
     def get_nodes(self):
@@ -40,7 +41,7 @@ class ControlFlowExtractor:
         :param nd:
         """
         self.edge_list_cfg.clear()
-        attr_edges_dict = {'color': '#00e629'}
+        attr_edges_dict = {'color': '#00e629', 'weight': str(self.fan_out)}
         if isinstance(nd, ast.Module):
             body = nd.__dict__['body']
             if len(body) > 0:
@@ -59,7 +60,7 @@ class ControlFlowExtractor:
         :return:
         """
         for i in range(0, len(body)):
-            attr_edges_dict = {'color': '#00e629'}
+            attr_edges_dict = {'color': '#00e629', 'weight': str(self.fan_out)}
             nd_curr = body[i]
             if isinstance(nd_curr, ast.Assign) or isinstance(nd_curr, ast.AnnAssign) \
                     or isinstance(nd_curr, ast.AugAssign):

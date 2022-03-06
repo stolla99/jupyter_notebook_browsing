@@ -279,7 +279,6 @@ for file_index in range(0, len(files)):
     G = pgv.AGraph(strict=False, directed=True, label="ast_" + file_in_use)
     # Set some default attributes
     G.node_attr["shape"] = "Mrecord"
-    G.graph_attr["rank"] = "same"
 
     # Add edges and nodes with labels
     for (node, attr_dict) in node_list:

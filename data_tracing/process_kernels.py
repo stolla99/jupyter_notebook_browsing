@@ -6,18 +6,7 @@ from typing import Callable
 from nbformat import read, NO_CONVERT
 from data_tracing.extract_cfg import ControlFlowExtractor
 from data_tracing.extract_dfg import DataFlowExtractor
-
-
-def pairwise(iterable):
-    """
-    Copied from the python 3.10 itertools library
-    :param iterable:
-    :return:
-    """
-    # pairwise('ABCDEFG') --> AB BC CD DE EF FG
-    a, b = itertools.tee(iterable)
-    next(b, None)
-    return zip(a, b)
+import data_tracing.utils as utils
 
 
 type_check_ld_st: Callable[[ast.AST], bool] = lambda arg: not (isinstance(arg, ast.Load) or isinstance(arg, ast.Store)
@@ -39,7 +28,7 @@ def node_str_generator(ast_node, current_cell):
     if isinstance(ast_node, ast.Module):
         label = "Module"
         attribute_dict["label"] = label
-        attribute_dict["style"] = "invis"
+        # attribute_dict["style"] = "invis"
     elif isinstance(ast_node, ast.FunctionDef):
         attributes = ast_node.__dict__
         label = "FunctionDef\\n="
@@ -202,7 +191,7 @@ for cell_key in ast_dict.keys():
 for cell_key in ast_dict.keys():
     cell_code = ast_dict[cell_key]
     name = 'Cell ' + cell_key
-    G.subgraph(list(map(lambda elem: elem[0], cell_code[0])), name="cluster"+cell_key, label=name, rank="same")
+    G.subgraph(list(map(lambda elem: elem[0], cell_code[0])), name="cluster"+cell_key, label=name)
 
 # Make edges from Module node (of every cell) invisible) to avoid visual clutter.
 for cell_key in ast_dict.keys():
@@ -225,9 +214,6 @@ for cell_key in ast_dict_parsed.keys():
     for ((x, y), attr) in cfg_ex.edge_list_cfg:
         G.add_edge(node_str_generator(x, cell_key)[0], node_str_generator(y, cell_key)[0], **attr)
 
-# Layout chosen to be dot
-G.layout(prog='dot')
-
 dfg_ex = DataFlowExtractor(ast_dict_parsed)
 attr = {"color": "#fc0303"}
 dfg_edge_list = dfg_ex.walk_and_get_edges()
@@ -236,6 +222,8 @@ for n_v_tupleU, n_v_tupleV in dfg_edge_list:
     nameV, _ = node_str_generator(n_v_tupleV[0], n_v_tupleV[1])
     G.add_edge(nameU, nameV, **attr)
 
+# Layout chosen to be dot
+G.layout(prog='dot')
 
 # Write graph to a png file
 G.draw('ast_' + file + '.png')

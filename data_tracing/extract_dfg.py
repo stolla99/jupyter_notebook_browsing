@@ -1,6 +1,6 @@
 import ast
-import itertools
-from _ast import AST
+import itertools as iter
+import data_tracing.utils as utils
 
 
 class DataFlowExtractor:
@@ -43,7 +43,15 @@ class DataFlowExtractor:
         """
         I dunno know
         """
-        for pos, n_v_tuple in itertools.zip_longest(range(len(self.ast_name_list)), self.ast_name_list):
+        sorted_name_list = []
+        for iterable, group in iter.groupby(self.ast_name_list, key=lambda elem: elem[1]):
+            group = list(group)
+            group.sort(key=lambda elem: elem[0].__dict__["lineno"])
+            sorted_name_list.extend(group)
+            print("")
+        assert len(sorted_name_list) == len(self.ast_name_list)
+        self.ast_name_list = sorted_name_list
+        for pos, n_v_tuple in iter.zip_longest(range(len(self.ast_name_list)), self.ast_name_list):
             # ctx is either LOAD, STORE or DEL
             # n_v_tuple[0] -> node
             # n_v_tuple[1] -> origin cell number
@@ -51,15 +59,20 @@ class DataFlowExtractor:
             identifier = n_v_tuple[0].__dict__["id"]
             if isinstance(ctx, ast.Store):
                 rest = list(filter(lambda elem: elem[0].__dict__["id"] == identifier, self.ast_name_list[(pos+1):]))
-                self._add_to_list(n_v_tuple, rest)
+                if len(rest) >= 1:
+                    first_node_in_rest = rest[0]
+                    if isinstance(first_node_in_rest[0].__dict__["ctx"], ast.Load):
+                        self.ast_edge_list.append((n_v_tuple, rest[0]))
+                        self._add_to_list(rest)
 
-    def _add_to_list(self, source: ast.AST, rest: [ast.AST]):
-        for n_v_tuple in rest:
-            ctx = n_v_tuple[0].__dict__["ctx"]
-            if isinstance(ctx, ast.Load):
-                self.ast_edge_list.append((source, n_v_tuple))
+    def _add_to_list(self, rest: [ast.AST]):
+        # n_v_tpl_tail is implicitly always form instance ast.Load due to the function call if procedure
+        for n_v_tpl_tail, n_v_tpl_head in utils.pairwise(rest):
+            ctx_head = n_v_tpl_head[0].__dict__["ctx"]
+            if isinstance(ctx_head, ast.Load):
+                self.ast_edge_list.append((n_v_tpl_tail, n_v_tpl_head))
             else:
-                # In case the node has the type ast.Store or ast.Del we can break an exit the function.
-                # ast.Store -> Variable is overwritten
-                # ast.Del -> Variable is destroyed for the remaining script
+                # In case the node n_v_tpl_head has the type ast.Store or ast.Del we can break an exit the function.
+                # ast.Store -> Variable will be overwritten
+                # ast.Del   -> Variable will be destroyed for the remaining script
                 break
