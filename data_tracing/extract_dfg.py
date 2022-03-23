@@ -48,7 +48,6 @@ class DataFlowExtractor:
             group = list(group)
             group.sort(key=lambda elem: elem[0].__dict__["lineno"])
             sorted_name_list.extend(group)
-            print("")
         assert len(sorted_name_list) == len(self.ast_name_list)
         self.ast_name_list = sorted_name_list
         for pos, n_v_tuple in iter.zip_longest(range(len(self.ast_name_list)), self.ast_name_list):

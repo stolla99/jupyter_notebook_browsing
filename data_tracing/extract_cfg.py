@@ -9,6 +9,7 @@ class ControlFlowExtractor:
     def __init__(self, fan_out=1000):
         self.fan_out = fan_out
         self.edge_list_cfg = []
+        self.rank_triples = []
 
     def get_nodes(self):
         """
@@ -19,7 +20,7 @@ class ControlFlowExtractor:
         for ((x, y), attr) in self.edge_list_cfg:
             temp.add(x)
             temp.add(y)
-        return temp
+        return list(temp)
 
     def get_edge_list(self, with_attributes=True):
         """
@@ -27,6 +28,13 @@ class ControlFlowExtractor:
         :param with_attributes:
         :return:
         """
+        attr_edges_dict = {'color': '#000000'}
+        for node in self.get_nodes():
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    self.rank_triples.append([target, node, node.value])
+                    self.edge_list_cfg.append(((target, node), attr_edges_dict.copy()))
+                    self.edge_list_cfg.append(((node.value, node), attr_edges_dict.copy()))
         if with_attributes:
             return self.edge_list_cfg
         else:
@@ -127,10 +135,10 @@ class ControlFlowExtractor:
         :param nd:
         :return:
         """
-        attr_edges_dict = {'color': '#00e629'}
-        child = nd.__dict__['value']
-        self.edge_list_cfg.append(((nd, child), attr_edges_dict))
-        return [child]
+        # attr_edges_dict = {'color': '#00e629', 'weight': str(self.fan_out)}
+        # child = nd.__dict__['value']
+        # self.edge_list_cfg.append(((nd, child), attr_edges_dict))
+        return [nd]
 
     def get_exit_nodes_IF(self, nd: ast.If):
         """

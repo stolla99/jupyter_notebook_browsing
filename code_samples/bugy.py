@@ -14,8 +14,8 @@ f = 5
 import pygraphviz as pgv
 
 G = pgv.AGraph(title="hello", compound=True, directed=True, strict=False, rankdir="TB")
-G.add_node("1", label="x")
-G.add_node("2", label="x")
+G.add_node("1", label="1")
+G.add_node("2", label="2")
 G.add_edge("1", "2")
 G.subgraph(["1", "2"], rank="same")
 

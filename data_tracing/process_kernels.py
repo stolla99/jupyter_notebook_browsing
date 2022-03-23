@@ -26,26 +26,29 @@ def node_str_generator(ast_node, current_cell):
     attribute_dict = dict()
     attribute_dict["margin"] = "0,0"
     if isinstance(ast_node, ast.Module):
-        label = "Module"
+        label = ""
         attribute_dict["label"] = label
+        attribute_dict["shape"] = "underline"
         # attribute_dict["style"] = "invis"
     elif isinstance(ast_node, ast.FunctionDef):
         attributes = ast_node.__dict__
         label = "FunctionDef\\n="
         name = attributes['name']
         attribute_dict["label"] = label + name
-    elif isinstance(ast_node, ast.Assign):
-        label = "Assign\\n="
-        attribute_dict["label"] = label
     elif isinstance(ast_node, ast.Name):
         attributes = ast_node.__dict__
         ident = attributes['id']
         label = "Name\\n" + ident
         attribute_dict["label"] = label
-    elif isinstance(ast_node, ast.ImportFrom):
-        attributes = ast_node.__dict__
-        module = attributes['module']
-        label = "ImportFrom\\n" + str(module)
+    elif isinstance(ast_node, ast.Assign):
+        code_line = ast.unparse(ast_node)
+        code_line_split = code_line.split("=")
+        label = "=" + code_line_split[0]
+        attribute_dict["label"] = label
+    elif isinstance(ast_node, ast.Import) or isinstance(ast_node, ast.ImportFrom) \
+            or isinstance(ast_node, ast.Expr):
+        code_line = ast.unparse(ast_node)
+        label = code_line
         attribute_dict["label"] = label
     elif isinstance(ast_node, ast.Constant):
         attributes = ast_node.__dict__
@@ -148,7 +151,7 @@ with open(path + file + ext) as fp:
 cells = notebook['cells']
 code_cells = [c for c in cells if c['cell_type'] == 'code']
 
-# One ast for every code cell
+# One ast (ready for the graph) for every code cell, contains (List of nodes, List of edges)
 ast_dict = dict()
 # Dictionary with the ASTs itself
 ast_dict_parsed = dict()
@@ -168,52 +171,70 @@ for cell, i in itertools.zip_longest(code_cells, range(len(code_cells))):
         print('Parsing failed with SyntaxError')
         ast_cell = ast.parse(source='\n')
     # Save ast itself for the CFG extraction (and data flow)
-    ast_dict_parsed[str(i)] = ast_cell
-    node_traversal(ast_cell, i)
-    ast_dict[str(i)] = (node_list.copy(), edge_list.copy())
-    node_list.clear()
-    edge_list.clear()
+    body = ast_cell.__dict__['body']
+    if len(body) > 0:
+        ast_dict_parsed[str(i)] = ast_cell
+        node_traversal(ast_cell, i)
+        ast_dict[str(i)] = (node_list.copy(), edge_list.copy())
+        node_list.clear()
+        edge_list.clear()
 
 # Create graph from edge list and nodelist using the dot-layout
-G = pgv.AGraph(strict=False, directed=True, label="ast_" + file, compound=True, rankdir="TB", splines="polyline")
+G = pgv.AGraph(strict=False, directed=True, label="ast_" + file, compound=True, rankdir="TB", splines="spline")
 # Set some default attributes
-G.node_attr['shape'] = 'Mrecord'
+G.node_attr['shape'] = 'record'
 
-# Add edges and nodes with labels
-for cell_key in ast_dict.keys():
-    cell_code = ast_dict[cell_key]
-    # Adding cluster anchor nodes with the corresponding cell number (node_str, cell_num)
-    cluster_head_list.append(((cell_code[0])[0])[0])
-    for (node, attr_dict) in cell_code[0]:
-        G.add_node(node, **attr_dict)
-
-# Add cluster with name cluster[cell number] into the graph with name Cell[cell number]
-for cell_key in ast_dict.keys():
-    cell_code = ast_dict[cell_key]
-    name = 'Cell ' + cell_key
-    G.subgraph(list(map(lambda elem: elem[0], cell_code[0])), name="cluster"+cell_key, label=name)
-
-# Make edges from Module node (of every cell) invisible) to avoid visual clutter.
-for cell_key in ast_dict.keys():
-    cell_code = ast_dict[cell_key]
-    for u, v in cell_code[1]:
-        if u in cluster_head_list:
-            G.add_edge(u, v, style="invis")
-        else:
-            G.add_edge(u, v)
-
-# Insure that cells are displayed form left to right in the graph => Place Module node of every cell onto the same level
-G.add_subgraph(cluster_head_list, rank="same")
+# Dictionary with nodes of the cfg for every cell
+cfg_dict = dict()
 
 # Extract the flow graphs from the ASTs of every cell in the jupyter notebook (potentially)
 cfg_ex = ControlFlowExtractor()
 for cell_key in ast_dict_parsed.keys():
     ast_cell = ast_dict_parsed[cell_key]
     cfg_ex.extract_CFG(ast_cell)
+
+    # Call this get_edge_list() before get.nodes() to include targets and values of ast.Assign
+    edge_list = cfg_ex.get_edge_list()
+
+    cluster_head = None
+    nodes = []
+    for node in cfg_ex.get_nodes():
+        nodes.append(node_str_generator(node, cell_key))
+        if isinstance(node, ast.Module):
+            cluster_head = node
+
+    # Adding cluster anchor nodes with the corresponding cell number (node_str, cell_num)
+    if cluster_head is not None:
+        cluster_head_list.append((cluster_head, cell_key))
+    else:
+        raise ModuleNotFoundError
+    cfg_dict[cell_key] = nodes
+
+    for (node, attr_dict) in nodes:
+        G.add_node(node, **attr_dict)
+
     G.add_subgraph(cfg_ex.get_nodes(), "cfg_cell" + str(cell_key))
-    for ((x, y), attr) in cfg_ex.edge_list_cfg:
+
+    for ((x, y), attr) in edge_list:
         G.add_edge(node_str_generator(x, cell_key)[0], node_str_generator(y, cell_key)[0], **attr)
 
+    # Place every target, assign, value on the same rank
+    for triple in cfg_ex.rank_triples:
+        G.add_subgraph([node_str_generator(nd, cell_key)[0] for nd in triple], rank="same")
+
+# Add cluster with name cluster[cell number] into the graph with name Cell_[cell number]
+for cell_key in cfg_dict.keys():
+    n_e_tuple = cfg_dict[cell_key]
+    name = 'Cell ' + cell_key
+    G.subgraph(list(map(lambda elem: elem[0], n_e_tuple)), name="cluster"+cell_key, label=name)
+
+# Ensure that cells are displayed from left to right in the graph => Place Module node of every cell onto the same level
+cluster_head_list = [node_str_generator(node, cell)[0] for (node, cell) in cluster_head_list]
+G.add_subgraph(cluster_head_list, rank="same")
+for x, y in itertools.pairwise(cluster_head_list):
+    G.add_edge(x, y, style="invis")
+
+"""
 dfg_ex = DataFlowExtractor(ast_dict_parsed)
 attr = {"color": "#fc0303"}
 dfg_edge_list = dfg_ex.walk_and_get_edges()
@@ -221,6 +242,7 @@ for n_v_tupleU, n_v_tupleV in dfg_edge_list:
     nameU, _ = node_str_generator(n_v_tupleU[0], n_v_tupleU[1])
     nameV, _ = node_str_generator(n_v_tupleV[0], n_v_tupleV[1])
     G.add_edge(nameU, nameV, **attr)
+"""
 
 # Layout chosen to be dot
 G.layout(prog='dot')
