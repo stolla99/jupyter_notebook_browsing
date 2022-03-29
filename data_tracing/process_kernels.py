@@ -8,7 +8,6 @@ from data_tracing.extract_cfg import ControlFlowExtractor
 from data_tracing.extract_dfg import DataFlowExtractor
 import data_tracing.utils as utils
 
-
 type_check_ld_st: Callable[[ast.AST], bool] = lambda arg: not (isinstance(arg, ast.Load) or isinstance(arg, ast.Store)
                                                                or isinstance(arg, ast.operator)
                                                                or isinstance(arg, ast.unaryop))
@@ -24,21 +23,19 @@ def node_str_generator(ast_node, current_cell):
     """
     cell_str = "$cell" + str(current_cell)
     attribute_dict = dict()
-    attribute_dict["margin"] = "0,0"
+    attribute_dict["margin"] = "0.1"
     if isinstance(ast_node, ast.Module):
         label = ""
         attribute_dict["label"] = label
         attribute_dict["shape"] = "underline"
-        # attribute_dict["style"] = "invis"
     elif isinstance(ast_node, ast.FunctionDef):
         attributes = ast_node.__dict__
-        label = "FunctionDef\\n="
+        label = "FunctionDef\\n"
         name = attributes['name']
         attribute_dict["label"] = label + name
     elif isinstance(ast_node, ast.Name):
         attributes = ast_node.__dict__
-        ident = attributes['id']
-        label = "Name\\n" + ident
+        label = attributes['id']
         attribute_dict["label"] = label
     elif isinstance(ast_node, ast.Assign):
         code_line = ast.unparse(ast_node)
@@ -50,50 +47,30 @@ def node_str_generator(ast_node, current_cell):
         code_line = ast.unparse(ast_node)
         label = code_line
         attribute_dict["label"] = label
+    elif isinstance(ast_node, ast.Call):
+        code_line = ast.unparse(ast_node)
+        label = code_line
+        attribute_dict["label"] = label
     elif isinstance(ast_node, ast.Constant):
         attributes = ast_node.__dict__
         value = attributes['value']
-        label = "Constant\\n" + str(value)
+        label = "\'" + str(value) + "\'"
         attribute_dict["label"] = label
     elif isinstance(ast_node, ast.Attribute):
-        attributes = ast_node.__dict__
-        attr = attributes['attr']
-        label = "Attribute\\n" + str(attr)
+        code_line = ast.unparse(ast_node)
+        label = code_line
         attribute_dict["label"] = label
-    elif isinstance(ast_node, ast.alias):
-        attributes = ast_node.__dict__
-        asname = attributes['asname']
-        name = attributes['name']
-        if asname is None:
-            label = "alias\\n" + str(name)
-        else:
-            label = "alias\\n" + str(name) + " as " + str(asname)
-        attribute_dict["label"] = label
-    elif isinstance(ast_node, ast.keyword):
-        attributes = ast_node.__dict__
-        arg = attributes['arg']
-        label = "keyword\\n" + "arg " + str(arg)
+    elif isinstance(ast_node, ast.Dict):
+        code_line = ast.unparse(ast_node)
+        code_line.replace("{", 'U+007B')
+        print(code_line)
+        label = code_line
         attribute_dict["label"] = label
     elif isinstance(ast_node, ast.arg):
         attributes = ast_node.__dict__
         arg = attributes['arg']
         label = "arg\\n" + str(arg)
         attribute_dict["label"] = label
-    elif isinstance(ast_node, ast.BinOp):
-        attributes = ast_node.__dict__
-        label = "BinOp\\n"
-        operator = type(attributes['op']).__name__
-        attribute_dict["label"] = label + operator
-    elif isinstance(ast_node, ast.AugAssign):
-        attributes = ast_node.__dict__
-        label = "AugAssign\\n"
-        operator = type(attributes['op']).__name__
-        attribute_dict["label"] = label + operator
-    elif isinstance(ast_node, ast.UnaryOp):
-        attributes = ast_node.__dict__
-        label = "UnaryOp\\n"
-        operator = type(attributes['op']).__name__
-        attribute_dict["label"] = label + operator
     else:
         label = type(ast_node).__name__
         attribute_dict["label"] = label
@@ -137,6 +114,51 @@ def node_traversal(nd, current_cell):
                 elif isinstance(value, ast.AST) and type_check_ld_st(value):
                     edge_list.append((node_str, node_str_generator(value, current_cell)[0]))
                     node_traversal(value, current_cell)
+
+
+def trim_string(node_str):
+    """
+
+    :param node_str:
+    :return:
+    """
+    node_str = node_str.replace("<", "")
+    node_str = node_str.replace(">", "")
+    return node_str
+
+
+def process_node(node, cell_key):
+    """
+
+    :param node:
+    :param cell_key:
+    """
+    dfg_ex = DataFlowExtractor(node)
+    attr_node_dict = {"shape": "record", "margin": "0.1"}
+    if isinstance(node, ast.Assign):
+        dfg_node_list = dfg_ex.walk_tree_by_name(no_dict=True, ast=node, cell_num=cell_key, to_exclude=node.targets)
+
+        target_string = "&#92;n".join(["<" + trim_string(node_str_generator(n, cell_key)[0]) + "> "
+                                       + (node_str_generator(n, cell_key)[1])["label"] for n in node.targets])
+        used_var_str = "{" + "| ".join(["<" + trim_string(node_str_generator(n, int(val))[0]) + "> "
+                                        + (node_str_generator(n, int(val))[1])["label"] for n, val in
+                                        dfg_node_list]) + "}"
+        label = target_string + "|{ " + (node_str_generator(node.value, cell_key)[1])["label"] + \
+                "|" + used_var_str + "}"
+        attr_node_dict["label"] = label
+        return node_str_generator(node, cell_key)[0], attr_node_dict
+    elif isinstance(node, ast.Expr):
+        dfg_node_list = dfg_ex.walk_tree_by_name(no_dict=True, ast=node, cell_num=cell_key, to_exclude=[])
+        label = "{" + (node_str_generator(node, cell_key)[1])["label"]
+        if len(dfg_node_list) > 0:
+            label += " |{ " \
+                     + "| ".join(["<" + trim_string(node_str_generator(var, cell_key)[0]) + ">"
+                                  + ((node_str_generator(var, cell_num))[1])["label"]
+                                  for var, cell_num in dfg_node_list]) + "}}"
+        else:
+            label += "}"
+        attr_node_dict["label"] = label
+        return node_str_generator(node, cell_key)[0], attr_node_dict
 
 
 file = 'data_vis_exer_1'
@@ -186,22 +208,35 @@ G.node_attr['shape'] = 'record'
 
 # Dictionary with nodes of the cfg for every cell
 cfg_dict = dict()
+# Dictionary with the node of the control flow excluding ast.Module for the DataFlow
+ast_cfg_nodes_dict = dict()
+
+# Assign nodes to be processed later
+assign_nodes = []
 
 # Extract the flow graphs from the ASTs of every cell in the jupyter notebook (potentially)
 cfg_ex = ControlFlowExtractor()
+
 for cell_key in ast_dict_parsed.keys():
     ast_cell = ast_dict_parsed[cell_key]
     cfg_ex.extract_CFG(ast_cell)
 
     # Call this get_edge_list() before get.nodes() to include targets and values of ast.Assign
     edge_list = cfg_ex.get_edge_list()
+    # Save for DataFlowExtractor later
+    ast_cfg_nodes_dict[cell_key] = cfg_ex.get_nodes(skip_module=True)
 
     cluster_head = None
+    # "nodes" has string and attribute dict as content
     nodes = []
     for node in cfg_ex.get_nodes():
         nodes.append(node_str_generator(node, cell_key))
         if isinstance(node, ast.Module):
             cluster_head = node
+        elif isinstance(node, ast.Assign):
+            nodes.append(process_node(node, cell_key))
+        elif isinstance(node, ast.Expr):
+            nodes.append(process_node(node, cell_key))
 
     # Adding cluster anchor nodes with the corresponding cell number (node_str, cell_num)
     if cluster_head is not None:
@@ -218,15 +253,11 @@ for cell_key in ast_dict_parsed.keys():
     for ((x, y), attr) in edge_list:
         G.add_edge(node_str_generator(x, cell_key)[0], node_str_generator(y, cell_key)[0], **attr)
 
-    # Place every target, assign, value on the same rank
-    for triple in cfg_ex.rank_triples:
-        G.add_subgraph([node_str_generator(nd, cell_key)[0] for nd in triple], rank="same")
-
 # Add cluster with name cluster[cell number] into the graph with name Cell_[cell number]
 for cell_key in cfg_dict.keys():
     n_e_tuple = cfg_dict[cell_key]
     name = 'Cell ' + cell_key
-    G.subgraph(list(map(lambda elem: elem[0], n_e_tuple)), name="cluster"+cell_key, label=name)
+    G.subgraph(list(map(lambda elem: elem[0], n_e_tuple)), name="cluster" + cell_key, label=name)
 
 # Ensure that cells are displayed from left to right in the graph => Place Module node of every cell onto the same level
 cluster_head_list = [node_str_generator(node, cell)[0] for (node, cell) in cluster_head_list]
@@ -234,15 +265,25 @@ G.add_subgraph(cluster_head_list, rank="same")
 for x, y in itertools.pairwise(cluster_head_list):
     G.add_edge(x, y, style="invis")
 
-"""
 dfg_ex = DataFlowExtractor(ast_dict_parsed)
 attr = {"color": "#fc0303"}
 dfg_edge_list = dfg_ex.walk_and_get_edges()
 for n_v_tupleU, n_v_tupleV in dfg_edge_list:
-    nameU, _ = node_str_generator(n_v_tupleU[0], n_v_tupleU[1])
-    nameV, _ = node_str_generator(n_v_tupleV[0], n_v_tupleV[1])
-    G.add_edge(nameU, nameV, **attr)
-"""
+    parent_U = dfg_ex.get_parent_node(n_v_tupleU[0], ast_cfg_nodes_dict[n_v_tupleU[1]])
+    parent_V = dfg_ex.get_parent_node(n_v_tupleV[0], ast_cfg_nodes_dict[n_v_tupleV[1]])
+    if parent_V is None or parent_U is None:
+        # TODO eval function def edges
+        continue
+    elif parent_U == parent_V:
+        continue
+    else:
+        nameU, _ = node_str_generator(n_v_tupleU[0], n_v_tupleU[1])
+        nameV, _ = node_str_generator(n_v_tupleV[0], n_v_tupleV[1])
+        G.add_edge(node_str_generator(parent_U, n_v_tupleU[1])[0],
+                   node_str_generator(parent_V, n_v_tupleV[1])[0],
+                   tailport=trim_string(nameU) + ":" + "s",
+                   headport=trim_string(nameV) + ":" + "n",
+                   **attr)
 
 # Layout chosen to be dot
 G.layout(prog='dot')

@@ -9,17 +9,25 @@ class ControlFlowExtractor:
     def __init__(self, fan_out=1000):
         self.fan_out = fan_out
         self.edge_list_cfg = []
-        self.rank_triples = []
 
-    def get_nodes(self):
+    def get_nodes(self, skip_module=False):
         """
 
         :return:
         """
         temp = set()
         for ((x, y), attr) in self.edge_list_cfg:
-            temp.add(x)
-            temp.add(y)
+            if skip_module:
+                if isinstance(x, ast.Module):
+                    # y can never be of instance ast.Module
+                    temp.add(y)
+                    continue
+                else:
+                    temp.add(x)
+                    temp.add(y)
+            else:
+                temp.add(x)
+                temp.add(y)
         return list(temp)
 
     def get_edge_list(self, with_attributes=True):
@@ -28,13 +36,7 @@ class ControlFlowExtractor:
         :param with_attributes:
         :return:
         """
-        attr_edges_dict = {'color': '#000000'}
-        for node in self.get_nodes():
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    self.rank_triples.append([target, node, node.value])
-                    self.edge_list_cfg.append(((target, node), attr_edges_dict.copy()))
-                    self.edge_list_cfg.append(((node.value, node), attr_edges_dict.copy()))
+
         if with_attributes:
             return self.edge_list_cfg
         else:

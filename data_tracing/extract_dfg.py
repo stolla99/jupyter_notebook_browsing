@@ -26,17 +26,24 @@ class DataFlowExtractor:
         self.fill_edge_list()
         return self.ast_edge_list
 
-    def walk_tree_by_name(self):
+    def walk_tree_by_name(self, no_dict=False, **kwargs):
         """
         Walks the tree for every cell and inserts ast.Name nodes into the ast_name_list
 
         :return: List of the all ast.Names found in the ast trees of all cells
         """
-        for cell_num in self.ast_tree_cells.keys():
-            ast_cell = self.ast_tree_cells[cell_num]
-            for node in ast.walk(ast_cell):
-                if isinstance(node, ast.Name):
-                    self.ast_name_list.append((node, cell_num))
+        # Simulate the dict
+        if no_dict:
+            tree = kwargs["ast"]
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Name) and not node in kwargs["to_exclude"]:
+                    self.ast_name_list.append((node, kwargs["cell_num"]))
+        else:
+            for cell_num in self.ast_tree_cells.keys():
+                ast_cell = self.ast_tree_cells[cell_num]
+                for node in ast.walk(ast_cell):
+                    if isinstance(node, ast.Name):
+                        self.ast_name_list.append((node, cell_num))
         return self.ast_name_list
 
     def fill_edge_list(self):
@@ -57,7 +64,7 @@ class DataFlowExtractor:
             ctx = n_v_tuple[0].__dict__["ctx"]
             identifier = n_v_tuple[0].__dict__["id"]
             if isinstance(ctx, ast.Store):
-                rest = list(filter(lambda elem: elem[0].__dict__["id"] == identifier, self.ast_name_list[(pos+1):]))
+                rest = list(filter(lambda elem: elem[0].__dict__["id"] == identifier, self.ast_name_list[(pos + 1):]))
                 if len(rest) >= 1:
                     first_node_in_rest = rest[0]
                     if isinstance(first_node_in_rest[0].__dict__["ctx"], ast.Load):
@@ -75,3 +82,16 @@ class DataFlowExtractor:
                 # ast.Store -> Variable will be overwritten
                 # ast.Del   -> Variable will be destroyed for the remaining script
                 break
+
+    def get_parent_node(self, node: ast.AST, ast_nodes: [ast.AST]):
+        """
+
+        :param ast_nodes:
+        :param node:
+        """
+        for ast_node in ast_nodes:
+            if not (isinstance(ast_node, ast.FunctionDef) or isinstance(ast_node, ast.Return)):
+                for child in ast.walk(ast_node):
+                    if node == child:
+                        return ast_node
+        return None

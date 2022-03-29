@@ -13,14 +13,14 @@ f = 5
 
 import pygraphviz as pgv
 
-G = pgv.AGraph(title="hello", compound=True, directed=True, strict=False, rankdir="TB")
-G.add_node("1", label="1")
-G.add_node("2", label="2")
-G.add_edge("1", "2")
-G.subgraph(["1", "2"], rank="same")
+from pygraphviz import AGraph
+g = AGraph()
+g.add_node("a00", label="<f0> text | {<f1> f1 | <f2> text}", shape="record")
+g.add_node("a01", label="<f0> f0 | {<f1> text | <f2> text}", shape="record")
+g.add_edge('a00', 'a01', tailport='f1', headport='f0')
 
 
-G.layout('dot')
+g.layout('dot')
 
-G.draw('GHGKG.png')
+g.draw('GHGKG.png')
 print("")
