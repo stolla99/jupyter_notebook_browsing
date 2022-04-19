@@ -115,10 +115,11 @@ class ControlFlowExtractor:
                 else:
                     for exit_node in exit_nodes:
                         self.edge_list_cfg.append(((exit_node, body[i + 1]), attr_edges_dict))
-                    attr_edges_dict = attr_edges_dict.copy()
-                    attr_edges_dict['label'] = 'skip'
-                    attr_edges_dict['color'] = '#ff0039'
-                    self.edge_list_cfg.append(((nd_curr, body[i + 1]), attr_edges_dict))
+                    # attr_edges_dict = dict()
+                    # attr_edges_dict['constraint'] = 'False'
+                    # attr_edges_dict['label'] = 'skip'
+                    # attr_edges_dict['color'] = '#00e629'
+                    # self.edge_list_cfg.append(((nd_curr, body[i + 1]), attr_edges_dict))
             elif isinstance(nd_curr, ast.Break):
                 return [nd_curr]
             elif isinstance(nd_curr, ast.Continue):
@@ -182,7 +183,6 @@ class ControlFlowExtractor:
         """
         exit_nodes = []
         attr_edges_dict = {'color': '#00e629'}
-
         body = nd.__dict__['body']
         self.edge_list_cfg.append(((nd, body[0]), attr_edges_dict))
         lst = self.create_CFG(body)
@@ -192,7 +192,9 @@ class ControlFlowExtractor:
             if isinstance(exit_node, ast.Break):
                 continue
             else:
-                self.edge_list_cfg.append(((exit_node, nd), attr_edges_dict.copy()))
+                attr_edges_dict_cpy = attr_edges_dict.copy()
+                attr_edges_dict_cpy['constraint'] = 'False'
+                # self.edge_list_cfg.append(((exit_node, nd), attr_edges_dict.copy()))
         return exit_nodes
 
     def get_exit_nodes_FUNCTION(self, nd: ast.FunctionDef):

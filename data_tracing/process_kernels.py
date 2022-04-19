@@ -1,12 +1,16 @@
+import copy
 import os
 import ast
 import itertools
+import subprocess
+import time
+
 import pygraphviz as pgv
 from typing import Callable
 from nbformat import read, NO_CONVERT
 from data_tracing.extract_cfg import ControlFlowExtractor
 from data_tracing.extract_dfg import DataFlowExtractor
-import data_tracing.utils as utils
+from alive_progress import alive_bar
 
 type_check_ld_st: Callable[[ast.AST], bool] = lambda arg: not (isinstance(arg, ast.Load) or isinstance(arg, ast.Store)
                                                                or isinstance(arg, ast.operator)
@@ -21,6 +25,8 @@ def node_str_generator(ast_node, current_cell):
 
     :return: name for the node in the graph and dictionary with attributes
     """
+    if isinstance(ast_node, str):
+        return ast_node, {}
     cell_str = "$cell" + str(current_cell)
     attribute_dict = dict()
     attribute_dict["margin"] = "0.1"
@@ -28,6 +34,11 @@ def node_str_generator(ast_node, current_cell):
         label = ""
         attribute_dict["label"] = label
         attribute_dict["shape"] = "underline"
+    elif isinstance(ast_node, ast.For):
+        temp = copy.deepcopy(ast_node)
+        temp.body.clear()
+        label = ast.unparse(temp)
+        attribute_dict["label"] = label
     elif isinstance(ast_node, ast.FunctionDef):
         attributes = ast_node.__dict__
         label = "FunctionDef\\n"
@@ -63,7 +74,6 @@ def node_str_generator(ast_node, current_cell):
     elif isinstance(ast_node, ast.Dict):
         code_line = ast.unparse(ast_node)
         code_line.replace("{", 'U+007B')
-        print(code_line)
         label = code_line
         attribute_dict["label"] = label
     elif isinstance(ast_node, ast.arg):
@@ -72,7 +82,8 @@ def node_str_generator(ast_node, current_cell):
         label = "arg\\n" + str(arg)
         attribute_dict["label"] = label
     else:
-        label = type(ast_node).__name__
+        code_line = ast.unparse(ast_node)
+        label = code_line
         attribute_dict["label"] = label
     return label + str(ast_node) + cell_str, attribute_dict
 
@@ -122,9 +133,31 @@ def trim_string(node_str):
     :param node_str:
     :return:
     """
-    node_str = node_str.replace("<", "")
-    node_str = node_str.replace(">", "")
-    return node_str
+    return str(int.from_bytes(node_str.encode(), 'little'))
+
+
+def prepare_html(s):
+    """
+
+    :param s:
+    """
+    s = s.replace("<", "&lt;")
+    s = s.replace(">", "&gt;")
+    return s
+
+
+def get_width_of_table(html_str):
+    """
+    Calculates the width of an HTML element by calling render_html.py
+
+    :param html_str: Valid HTML code
+    :return: offsetWidth of the rendered HTML element
+    """
+    p = subprocess.Popen(['python', 'render_html.py', html_str], stdout=subprocess.PIPE)
+    width = int(p.stdout.readline().decode('utf-8'))
+    p.wait()
+    p.kill()
+    return width
 
 
 def process_node(node, cell_key):
@@ -134,34 +167,55 @@ def process_node(node, cell_key):
     :param cell_key:
     """
     dfg_ex = DataFlowExtractor(node)
-    attr_node_dict = {"shape": "record", "margin": "0.1"}
+    attr_node_dict = {"shape": "plaintext", "margin": "0.1"}
     if isinstance(node, ast.Assign):
         dfg_node_list = dfg_ex.walk_tree_by_name(no_dict=True, ast=node, cell_num=cell_key, to_exclude=node.targets)
 
-        target_string = "&#92;n".join(["<" + trim_string(node_str_generator(n, cell_key)[0]) + "> "
-                                       + (node_str_generator(n, cell_key)[1])["label"] for n in node.targets])
-        used_var_str = "{" + "| ".join(["<" + trim_string(node_str_generator(n, int(val))[0]) + "> "
-                                        + (node_str_generator(n, int(val))[1])["label"] for n, val in
-                                        dfg_node_list]) + "}"
-        label = target_string + "|{ " + (node_str_generator(node.value, cell_key)[1])["label"] + \
-                "|" + used_var_str + "}"
+        target_string = "<<TABLE WIDTH=\"\" BORDER=\"0\" CELLBORDER=\"1\" CELLSPACING=\"4\" CELLPADDING=\"4\">" \
+                        + "<TR>" \
+                        + "".join(["<TD ROWSPAN=\"2\" PORT=\"" + trim_string(node_str_generator(n, cell_key)[0])
+                                   + "\">"
+                                   + prepare_html((node_str_generator(n, cell_key)[1])["label"])
+                                   + "</TD>"
+                                   for n in node.targets]) \
+                        + "<TD COLSPAN=\"" + str(max(1, len(dfg_node_list))) + "\">" \
+                        + prepare_html((node_str_generator(node.value, cell_key)[1])["label"]) \
+                        + "</TD>" \
+                        + "</TR>"
+        used_var_str = ""
+        if len(dfg_node_list) > 0:
+            used_var_str += "<TR>" + "".join(["<TD PORT=\""
+                                              + trim_string(node_str_generator(n, int(val))[0])
+                                              + "\">"
+                                              + prepare_html((node_str_generator(n, int(val))[1])["label"])
+                                              + "</TD>"
+                                              for n, val in dfg_node_list]) + "</TR>"
+        else:
+            used_var_str += "<TR><TD></TD></TR>"
+
+        label = target_string + used_var_str + "</TABLE>>"
         attr_node_dict["label"] = label
         return node_str_generator(node, cell_key)[0], attr_node_dict
     elif isinstance(node, ast.Expr):
         dfg_node_list = dfg_ex.walk_tree_by_name(no_dict=True, ast=node, cell_num=cell_key, to_exclude=[])
-        label = "{" + (node_str_generator(node, cell_key)[1])["label"]
+        label = prepare_html((node_str_generator(node, cell_key)[1])["label"])
+        label = "<<TABLE WIDTH=\"\" BORDER=\"0\" CELLBORDER=\"1\" CELLSPACING=\"4\" CELLPADDING=\"4\">" \
+                + "<TR><TD COLSPAN=\"" + str(max(1, len(dfg_node_list))) + "\">" + label + "</TD></TR>"
         if len(dfg_node_list) > 0:
-            label += " |{ " \
-                     + "| ".join(["<" + trim_string(node_str_generator(var, cell_key)[0]) + ">"
-                                  + ((node_str_generator(var, cell_num))[1])["label"]
-                                  for var, cell_num in dfg_node_list]) + "}}"
+            label += "<TR>" + "".join(["<TD PORT=\""
+                                       + trim_string(node_str_generator(var, cell_key)[0])
+                                       + "\">"
+                                       + prepare_html(((node_str_generator(var, cell_num))[1])["label"])
+                                       + "</TD>"
+                                       for var, cell_num in dfg_node_list]) + "</TR></TABLE>>"
         else:
-            label += "}"
+            label += "</TABLE>>"
         attr_node_dict["label"] = label
         return node_str_generator(node, cell_key)[0], attr_node_dict
 
 
-file = 'data_vis_exer_1'
+# file = 'data_vis_exer_1'
+file = 'comprehensive-data-exploration-with-python'
 ext = '.ipynb'
 path = '../notebooks/'
 dir_list = os.listdir(path)
@@ -202,9 +256,14 @@ for cell, i in itertools.zip_longest(code_cells, range(len(code_cells))):
         edge_list.clear()
 
 # Create graph from edge list and nodelist using the dot-layout
-G = pgv.AGraph(strict=False, directed=True, label="ast_" + file, compound=True, rankdir="TB", splines="spline")
+G = pgv.AGraph(strict=False,
+               directed=True,
+               label="ast_" + file,
+               compound=True,
+               rankdir="TB",
+               splines="spline")
 # Set some default attributes
-G.node_attr['shape'] = 'record'
+G.node_attr['shape'] = 'plaintext'
 
 # Dictionary with nodes of the cfg for every cell
 cfg_dict = dict()
@@ -217,41 +276,100 @@ assign_nodes = []
 # Extract the flow graphs from the ASTs of every cell in the jupyter notebook (potentially)
 cfg_ex = ControlFlowExtractor()
 
-for cell_key in ast_dict_parsed.keys():
-    ast_cell = ast_dict_parsed[cell_key]
-    cfg_ex.extract_CFG(ast_cell)
+# List with all nodes
+line_nodes = []
 
-    # Call this get_edge_list() before get.nodes() to include targets and values of ast.Assign
-    edge_list = cfg_ex.get_edge_list()
-    # Save for DataFlowExtractor later
-    ast_cfg_nodes_dict[cell_key] = cfg_ex.get_nodes(skip_module=True)
+print()
+with alive_bar(len(ast_dict_parsed.keys()),
+               theme='smooth',
+               stats=False,
+               monitor="{count}/{total}",
+               force_tty=True,
+               title='Processing Cells') as bar:
+    for cell_key in ast_dict_parsed.keys():
+        ast_cell = ast_dict_parsed[cell_key]
+        cfg_ex.extract_CFG(ast_cell)
 
-    cluster_head = None
-    # "nodes" has string and attribute dict as content
-    nodes = []
-    for node in cfg_ex.get_nodes():
-        nodes.append(node_str_generator(node, cell_key))
-        if isinstance(node, ast.Module):
-            cluster_head = node
-        elif isinstance(node, ast.Assign):
-            nodes.append(process_node(node, cell_key))
-        elif isinstance(node, ast.Expr):
-            nodes.append(process_node(node, cell_key))
+        # Call this get_edge_list() before get.nodes() to include targets and values of ast.Assign
+        edge_list = cfg_ex.get_edge_list()
+        # Save for DataFlowExtractor later
+        ast_cfg_nodes_dict[cell_key] = cfg_ex.get_nodes(skip_module=True)
 
-    # Adding cluster anchor nodes with the corresponding cell number (node_str, cell_num)
-    if cluster_head is not None:
-        cluster_head_list.append((cluster_head, cell_key))
-    else:
-        raise ModuleNotFoundError
-    cfg_dict[cell_key] = nodes
+        cluster_head = None
+        # "nodes" has string and attribute dict as content
+        nodes = []
 
-    for (node, attr_dict) in nodes:
-        G.add_node(node, **attr_dict)
+        # html nodes
+        html_nodes = []
+        for node in cfg_ex.get_nodes():
+            if isinstance(node, ast.Module):
+                cluster_head = node
+                nodes.append(node_str_generator(node, cell_key))
+            elif isinstance(node, ast.Assign):
+                html_nodes.append(process_node(node, cell_key))
+            elif isinstance(node, ast.Expr):
+                html_nodes.append(process_node(node, cell_key))
+            else:
+                nodes.append(node_str_generator(node, cell_key))
 
-    G.add_subgraph(cfg_ex.get_nodes(), "cfg_cell" + str(cell_key))
+        # Create html_doc to render and obtain max offsetWidth to ensure left alignment of tables in nodes of the graph
+        html_doc = ""
+        for (node_str, attr_dict) in html_nodes:
+            html_str = attr_dict["label"]
+            html_doc += html_str[1:len(html_str) - 1]
 
-    for ((x, y), attr) in edge_list:
-        G.add_edge(node_str_generator(x, cell_key)[0], node_str_generator(y, cell_key)[0], **attr)
+        max_width = get_width_of_table(html_doc)
+        # TODO: Loading
+        for (node_str, attr_dict) in html_nodes:
+            label = attr_dict["label"]
+            attr_dict["label"] = label.replace("WIDTH=\"\"", "WIDTH=\"" + str(max_width) + "\"")
+            nodes.append((node_str, attr_dict))
+        html_nodes.clear()
+
+        cfg_nodes_sorted = ast_cfg_nodes_dict[cell_key]
+        cfg_nodes_sorted.sort(key=lambda elem: elem.__dict__["lineno"])
+        previous_node_str = None
+        first = True
+        for node in cfg_nodes_sorted:
+            label_ext = ""
+            lineno = str(node.__dict__["lineno"])
+            end_lineno = str(node.__dict__["end_lineno"])
+            if lineno == end_lineno:
+                label_ext += lineno
+            else:
+                label_ext += lineno + " - " + end_lineno
+            node_str = node_str_generator(node, cell_key)[0] + "$line" + label_ext
+            if first:
+                line_nodes.append(node_str)
+                first = False
+            nodes.append((node_str,
+                          {"label": "<<FONT COLOR=\"grey\" FACE=\"Monospace\"><B>Line</B> " + label_ext + ":" + "</FONT>>",
+                           "shape": "plaintext"}))
+            edge_list.append(((node_str, node), {"color": "grey", "constraint": "False", "arrowhead": "none"}))
+            if previous_node_str is not None:
+                edge_list.append(((previous_node_str, node_str),
+                                  {"color": "grey",
+                                   "arrowhead": "none",
+                                   "weight": 3}))
+            previous_node_str = node_str
+
+        # Adding cluster anchor nodes with the corresponding cell number (node_str, cell_num)
+        if cluster_head is not None:
+            cluster_head_list.append((cluster_head, cell_key))
+        else:
+            raise ModuleNotFoundError
+        cfg_dict[cell_key] = nodes
+
+        for (node, attr_dict) in nodes:
+            G.add_node(node, **attr_dict)
+
+        G.add_subgraph(cfg_ex.get_nodes(), "cfg_cell" + str(cell_key))
+
+        for ((x, y), attr) in edge_list:
+            G.add_edge(node_str_generator(x, cell_key)[0], node_str_generator(y, cell_key)[0], **attr)
+        # Update beautiful progress bar
+        time.sleep(0)
+        bar()
 
 # Add cluster with name cluster[cell number] into the graph with name Cell_[cell number]
 for cell_key in cfg_dict.keys():
@@ -260,10 +378,34 @@ for cell_key in cfg_dict.keys():
     G.subgraph(list(map(lambda elem: elem[0], n_e_tuple)), name="cluster" + cell_key, label=name)
 
 # Ensure that cells are displayed from left to right in the graph => Place Module node of every cell onto the same level
-cluster_head_list = [node_str_generator(node, cell)[0] for (node, cell) in cluster_head_list]
-G.add_subgraph(cluster_head_list, rank="same")
+# cluster_head_list = [node_str_generator(node, cell)[0] for (node, cell) in cluster_head_list]
+dummy_nodes = []
+first = True
 for x, y in itertools.pairwise(cluster_head_list):
-    G.add_edge(x, y, style="invis")
+    x_str = node_str_generator(x[0], x[1])[0]
+    y_str = node_str_generator(y[0], y[1])[0]
+    x_str_ext = x_str + "$line" + str(x[1])
+    y_str_ext = y_str + "$line" + str(y[1])
+    if first:
+        dummy_nodes.append(x_str_ext)
+        first = False
+    dummy_nodes.append(y_str_ext)
+    G.add_node(x_str_ext, label="dummy" + str(x[1]))
+    G.add_node(y_str_ext, label="dummy" + str(y[1]))
+    if not G.has_edge(x_str_ext, x_str):
+        G.add_edge(x_str_ext, x_str)
+    G.add_edge(x_str, y_str_ext)
+    G.add_edge(y_str_ext, y_str)
+#   G.add_edge(x, y, style="invis")
+
+# Prepare the head list and extend with dummy nodes
+temp = [node_str_generator(node, cell)[0] for (node, cell) in cluster_head_list]
+temp.extend(dummy_nodes)
+G.add_subgraph(temp, rank="same")
+
+assert len(dummy_nodes) == len(line_nodes)
+for dummy, line in itertools.zip_longest(dummy_nodes, line_nodes):
+    G.add_edge(dummy, line, weight=2)
 
 dfg_ex = DataFlowExtractor(ast_dict_parsed)
 attr = {"color": "#fc0303"}
@@ -291,3 +433,5 @@ G.layout(prog='dot')
 # Write graph to a png file
 G.draw('ast_' + file + '.png')
 quit("EOF")
+
+

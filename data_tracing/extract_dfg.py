@@ -1,6 +1,7 @@
 import ast
+import copy
+import itertools
 import itertools as iter
-import data_tracing.utils as utils
 
 
 class DataFlowExtractor:
@@ -73,7 +74,7 @@ class DataFlowExtractor:
 
     def _add_to_list(self, rest: [ast.AST]):
         # n_v_tpl_tail is implicitly always form instance ast.Load due to the function call if procedure
-        for n_v_tpl_tail, n_v_tpl_head in utils.pairwise(rest):
+        for n_v_tpl_tail, n_v_tpl_head in itertools.pairwise(rest):
             ctx_head = n_v_tpl_head[0].__dict__["ctx"]
             if isinstance(ctx_head, ast.Load):
                 self.ast_edge_list.append((n_v_tpl_tail, n_v_tpl_head))
@@ -91,7 +92,14 @@ class DataFlowExtractor:
         """
         for ast_node in ast_nodes:
             if not (isinstance(ast_node, ast.FunctionDef) or isinstance(ast_node, ast.Return)):
-                for child in ast.walk(ast_node):
-                    if node == child:
-                        return ast_node
+                if isinstance(ast_node, ast.For):
+                    cpy = copy.deepcopy(ast_node)
+                    cpy.body.clear()
+                    for child in ast.walk(cpy):
+                        if node == child:
+                            return ast_node
+                else:
+                    for child in ast.walk(ast_node):
+                        if node == child:
+                            return ast_node
         return None
