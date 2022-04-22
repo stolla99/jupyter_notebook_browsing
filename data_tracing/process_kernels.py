@@ -1,4 +1,5 @@
 import copy
+import csv
 import os
 import ast
 import itertools
@@ -33,7 +34,7 @@ def node_str_generator(ast_node, current_cell):
     if isinstance(ast_node, ast.Module):
         label = ""
         attribute_dict["label"] = label
-        attribute_dict["shape"] = "underline"
+        attribute_dict["shape"] = "plaintext"
     elif isinstance(ast_node, ast.For):
         temp = copy.deepcopy(ast_node)
         temp.body.clear()
@@ -278,6 +279,7 @@ cfg_ex = ControlFlowExtractor()
 
 # List with all nodes
 line_nodes = []
+last_line_nodes = []
 
 print()
 with alive_bar(len(ast_dict_parsed.keys()),
@@ -318,8 +320,8 @@ with alive_bar(len(ast_dict_parsed.keys()),
             html_str = attr_dict["label"]
             html_doc += html_str[1:len(html_str) - 1]
 
+        # max_width = 0
         max_width = get_width_of_table(html_doc)
-        # TODO: Loading
         for (node_str, attr_dict) in html_nodes:
             label = attr_dict["label"]
             attr_dict["label"] = label.replace("WIDTH=\"\"", "WIDTH=\"" + str(max_width) + "\"")
@@ -330,7 +332,7 @@ with alive_bar(len(ast_dict_parsed.keys()),
         cfg_nodes_sorted.sort(key=lambda elem: elem.__dict__["lineno"])
         previous_node_str = None
         first = True
-        for node in cfg_nodes_sorted:
+        for node, cell_num in itertools.zip_longest(cfg_nodes_sorted, range(len(cfg_nodes_sorted))):
             label_ext = ""
             lineno = str(node.__dict__["lineno"])
             end_lineno = str(node.__dict__["end_lineno"])
@@ -342,9 +344,12 @@ with alive_bar(len(ast_dict_parsed.keys()),
             if first:
                 line_nodes.append(node_str)
                 first = False
+            if cell_num == len(cfg_nodes_sorted) - 1:
+                last_line_nodes.append(node_str)
             nodes.append((node_str,
-                          {"label": "<<FONT COLOR=\"grey\" FACE=\"Monospace\"><B>Line</B> " + label_ext + ":" + "</FONT>>",
-                           "shape": "plaintext"}))
+                          {
+                              "label": "<<FONT COLOR=\"grey\" FACE=\"Monospace\"><B>Line</B> " + label_ext + ":" + "</FONT>>",
+                              "shape": "plaintext"}))
             edge_list.append(((node_str, node), {"color": "grey", "constraint": "False", "arrowhead": "none"}))
             if previous_node_str is not None:
                 edge_list.append(((previous_node_str, node_str),
@@ -378,9 +383,10 @@ for cell_key in cfg_dict.keys():
     G.subgraph(list(map(lambda elem: elem[0], n_e_tuple)), name="cluster" + cell_key, label=name)
 
 # Ensure that cells are displayed from left to right in the graph => Place Module node of every cell onto the same level
-# cluster_head_list = [node_str_generator(node, cell)[0] for (node, cell) in cluster_head_list]
 dummy_nodes = []
 first = True
+i = 0
+attr = {"color": "grey", "arrowhead": "none", "weight": "3"}
 for x, y in itertools.pairwise(cluster_head_list):
     x_str = node_str_generator(x[0], x[1])[0]
     y_str = node_str_generator(y[0], y[1])[0]
@@ -390,25 +396,36 @@ for x, y in itertools.pairwise(cluster_head_list):
         dummy_nodes.append(x_str_ext)
         first = False
     dummy_nodes.append(y_str_ext)
-    G.add_node(x_str_ext, label="dummy" + str(x[1]))
-    G.add_node(y_str_ext, label="dummy" + str(y[1]))
+    G.add_node(x_str_ext, label="")
+    G.add_node(y_str_ext, label="")
     if not G.has_edge(x_str_ext, x_str):
-        G.add_edge(x_str_ext, x_str)
-    G.add_edge(x_str, y_str_ext)
-    G.add_edge(y_str_ext, y_str)
-#   G.add_edge(x, y, style="invis")
+        G.add_edge(x_str_ext, x_str, style="invis")
+    G.add_edge(last_line_nodes[i], y_str_ext, **attr)
+    if i == len(cluster_head_list) - 2:
+        G.add_edge(y_str_ext, y_str, style="invis")
+    i += 1
 
 # Prepare the head list and extend with dummy nodes
 temp = [node_str_generator(node, cell)[0] for (node, cell) in cluster_head_list]
-temp.extend(dummy_nodes)
-G.add_subgraph(temp, rank="same")
-
 assert len(dummy_nodes) == len(line_nodes)
-for dummy, line in itertools.zip_longest(dummy_nodes, line_nodes):
-    G.add_edge(dummy, line, weight=2)
+for dummy, head in itertools.zip_longest(dummy_nodes, temp):
+    G.add_subgraph([dummy, head], rank="same")
 
+for dummy, line in itertools.zip_longest(dummy_nodes, line_nodes):
+    G.add_edge(dummy, line, **attr)
+
+# Colors for color coding from lookup table
+# Each variable name has its own color if all colors are assigned colors will be reused
+look_up_color = dict()
+# Current index in the color palette
+curr_color_i = 0
+csv_file = open('../resources/colors.csv', newline='')
+color_palette = csv.reader(csv_file, delimiter=' ')
+colors = [c[0] for c in color_palette]
+csv_file.close()
+
+attr = {"constraint": "False"}
 dfg_ex = DataFlowExtractor(ast_dict_parsed)
-attr = {"color": "#fc0303"}
 dfg_edge_list = dfg_ex.walk_and_get_edges()
 for n_v_tupleU, n_v_tupleV in dfg_edge_list:
     parent_U = dfg_ex.get_parent_node(n_v_tupleU[0], ast_cfg_nodes_dict[n_v_tupleU[1]])
@@ -419,8 +436,17 @@ for n_v_tupleU, n_v_tupleV in dfg_edge_list:
     elif parent_U == parent_V:
         continue
     else:
+        name = n_v_tupleU[0].id
         nameU, _ = node_str_generator(n_v_tupleU[0], n_v_tupleU[1])
         nameV, _ = node_str_generator(n_v_tupleV[0], n_v_tupleV[1])
+        if name in look_up_color.keys():
+            attr["color"] = look_up_color[name]
+        else:
+            color = colors[curr_color_i]
+            look_up_color[name] = color
+            attr["color"] = color
+            curr_color_i = (curr_color_i + 1) % len(colors)
+
         G.add_edge(node_str_generator(parent_U, n_v_tupleU[1])[0],
                    node_str_generator(parent_V, n_v_tupleV[1])[0],
                    tailport=trim_string(nameU) + ":" + "s",
@@ -431,7 +457,5 @@ for n_v_tupleU, n_v_tupleV in dfg_edge_list:
 G.layout(prog='dot')
 
 # Write graph to a png file
-G.draw('ast_' + file + '.png')
+G.draw('../output/ast_' + file + '.pdf')
 quit("EOF")
-
-

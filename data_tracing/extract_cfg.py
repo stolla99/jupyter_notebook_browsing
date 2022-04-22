@@ -51,7 +51,7 @@ class ControlFlowExtractor:
         :param nd:
         """
         self.edge_list_cfg.clear()
-        attr_edges_dict = {'color': '#00e629', 'weight': str(self.fan_out)}
+        attr_edges_dict = {'color': '#00e629', 'weight': str(self.fan_out), 'style': 'invis'}
         if isinstance(nd, ast.Module):
             body = nd.__dict__['body']
             if len(body) > 0:
@@ -70,7 +70,7 @@ class ControlFlowExtractor:
         :return:
         """
         for i in range(0, len(body)):
-            attr_edges_dict = {'color': '#00e629', 'weight': str(self.fan_out)}
+            attr_edges_dict = {'color': '#00e629', 'weight': str(self.fan_out), 'style': 'invis'}
             nd_curr = body[i]
             if isinstance(nd_curr, ast.Assign) or isinstance(nd_curr, ast.AnnAssign) \
                     or isinstance(nd_curr, ast.AugAssign):
@@ -150,7 +150,7 @@ class ControlFlowExtractor:
         :return:
         """
         exit_nodes = []
-        attr_edges_dict = {'color': '#00e629'}
+        attr_edges_dict = {'color': '#00e629', 'style': 'invis'}
 
         test = nd.__dict__['test']
         self.edge_list_cfg.append(((nd, test), attr_edges_dict))
@@ -182,7 +182,7 @@ class ControlFlowExtractor:
         :return:
         """
         exit_nodes = []
-        attr_edges_dict = {'color': '#00e629'}
+        attr_edges_dict = {'color': '#00e629', 'style': 'invis'}
         body = nd.__dict__['body']
         self.edge_list_cfg.append(((nd, body[0]), attr_edges_dict))
         lst = self.create_CFG(body)
@@ -203,7 +203,7 @@ class ControlFlowExtractor:
         :param nd:
         """
         exit_nodes = []
-        attr_edges_dict = {'color': '#00e629'}
+        attr_edges_dict = {'color': '#00e629', 'style': 'invis'}
 
         body = nd.__dict__['body']
         self.edge_list_cfg.append(((nd, body[0]), attr_edges_dict))

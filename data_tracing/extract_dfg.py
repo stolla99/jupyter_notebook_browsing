@@ -1,7 +1,7 @@
 import ast
 import copy
 import itertools
-import itertools as iter
+import itertools as itera
 
 
 class DataFlowExtractor:
@@ -52,13 +52,24 @@ class DataFlowExtractor:
         I dunno know
         """
         sorted_name_list = []
-        for iterable, group in iter.groupby(self.ast_name_list, key=lambda elem: elem[1]):
+        for iterable, group in itera.groupby(self.ast_name_list, key=lambda elem: elem[1]):
             group = list(group)
             group.sort(key=lambda elem: elem[0].__dict__["lineno"])
-            sorted_name_list.extend(group)
+            for _, g in itera.groupby(group, key=lambda elem: elem[0].__dict__["lineno"]):
+                g = list(g)
+                loads = []
+                stores = []
+                for elem in g:
+                    if isinstance(elem[0].__dict__["ctx"], ast.Load):
+                        loads.append(elem)
+                    else:
+                        stores.append(elem)
+
+                sorted_name_list.extend(loads)
+                sorted_name_list.extend(stores)
         assert len(sorted_name_list) == len(self.ast_name_list)
         self.ast_name_list = sorted_name_list
-        for pos, n_v_tuple in iter.zip_longest(range(len(self.ast_name_list)), self.ast_name_list):
+        for pos, n_v_tuple in itera.zip_longest(range(len(self.ast_name_list)), self.ast_name_list):
             # ctx is either LOAD, STORE or DEL
             # n_v_tuple[0] -> node
             # n_v_tuple[1] -> origin cell number
