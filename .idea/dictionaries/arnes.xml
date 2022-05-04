@@ -1,11 +1,18 @@
 <component name="ProjectDictionaryState">
   <dictionary name="arnes">
     <words>
+      <w>arrowsize</w>
+      <w>arrowtail</w>
       <w>asname</w>
+      <w>cellborder</w>
+      <w>cellpadding</w>
+      <w>cellspacing</w>
       <w>clusterrank</w>
+      <w>fixedsize</w>
       <w>ipynb</w>
       <w>itera</w>
       <w>kaggle</w>
+      <w>sucessful</w>
     </words>
   </dictionary>
 </component>

@@ -5,15 +5,16 @@ import ast
 import itertools
 import subprocess
 import time
-
 import pygraphviz as pgv
+
 from typing import Callable
 from nbformat import read, NO_CONVERT
 from data_tracing.extract_cfg import ControlFlowExtractor
 from data_tracing.extract_dfg import DataFlowExtractor
 from alive_progress import alive_bar
 
-type_check_ld_st: Callable[[ast.AST], bool] = lambda arg: not (isinstance(arg, ast.Load) or isinstance(arg, ast.Store)
+type_check_ld_st: Callable[[ast.AST], bool] = lambda arg: not (isinstance(arg, ast.Load)
+                                                               or isinstance(arg, ast.Store)
                                                                or isinstance(arg, ast.operator)
                                                                or isinstance(arg, ast.unaryop))
 
@@ -32,7 +33,7 @@ def node_str_generator(ast_node, current_cell):
     attribute_dict = dict()
     attribute_dict["margin"] = "0.1"
     if isinstance(ast_node, ast.Module):
-        label = ""
+        label = ''
         attribute_dict["label"] = label
         attribute_dict["shape"] = "plaintext"
     elif isinstance(ast_node, ast.For):
@@ -128,6 +129,20 @@ def node_traversal(nd, current_cell):
                     node_traversal(value, current_cell)
 
 
+def parse_list(line_list):
+    """
+    Iterates over of string and yield every successful parsed line.
+
+    :param line_list:
+    """
+    for elem in line_list:
+        try:
+            _ = ast.parse(source=elem)
+            yield elem
+        except SyntaxError:
+            print('SyntaxError due to line: ' + elem + '\n')
+
+
 def trim_string(node_str):
     """
 
@@ -171,10 +186,12 @@ def process_node(node, cell_key):
     attr_node_dict = {"shape": "plaintext", "margin": "0.1"}
     if isinstance(node, ast.Assign):
         dfg_node_list = dfg_ex.walk_tree_by_name(no_dict=True, ast=node, cell_num=cell_key, to_exclude=node.targets)
-
+        rowspan = 2
+        if len(dfg_node_list) == 0:
+            rowspan = 1
         target_string = "<<TABLE WIDTH=\"\" BORDER=\"0\" CELLBORDER=\"1\" CELLSPACING=\"4\" CELLPADDING=\"4\">" \
                         + "<TR>" \
-                        + "".join(["<TD ROWSPAN=\"2\" PORT=\"" + trim_string(node_str_generator(n, cell_key)[0])
+                        + "".join(["<TD ROWSPAN=\"" + str(rowspan) + "\" PORT=\"" + trim_string(node_str_generator(n, cell_key)[0])
                                    + "\">"
                                    + prepare_html((node_str_generator(n, cell_key)[1])["label"])
                                    + "</TD>"
@@ -191,12 +208,8 @@ def process_node(node, cell_key):
                                               + prepare_html((node_str_generator(n, int(val))[1])["label"])
                                               + "</TD>"
                                               for n, val in dfg_node_list]) + "</TR>"
-        else:
-            used_var_str += "<TR><TD></TD></TR>"
-
         label = target_string + used_var_str + "</TABLE>>"
         attr_node_dict["label"] = label
-        return node_str_generator(node, cell_key)[0], attr_node_dict
     elif isinstance(node, ast.Expr):
         dfg_node_list = dfg_ex.walk_tree_by_name(no_dict=True, ast=node, cell_num=cell_key, to_exclude=[])
         label = prepare_html((node_str_generator(node, cell_key)[1])["label"])
@@ -212,11 +225,18 @@ def process_node(node, cell_key):
         else:
             label += "</TABLE>>"
         attr_node_dict["label"] = label
-        return node_str_generator(node, cell_key)[0], attr_node_dict
+    elif isinstance(node, ast.Import) or isinstance(node, ast.ImportFrom):
+        # Alias are not tracked throughout the document
+        label = "<<TABLE WIDTH=\"\" BORDER=\"0\" CELLBORDER=\"1\" CELLSPACING=\"4\" CELLPADDING=\"4\">" \
+                + "<TR><TD>" + prepare_html((node_str_generator(node, cell_key)[1])["label"]) \
+                + "</TD></TR></TABLE>>"
+        attr_node_dict["label"] = label
+    return node_str_generator(node, cell_key)[0], attr_node_dict
 
 
 # file = 'data_vis_exer_1'
 file = 'comprehensive-data-exploration-with-python'
+
 ext = '.ipynb'
 path = '../notebooks/'
 dir_list = os.listdir(path)
@@ -243,10 +263,14 @@ for cell, i in itertools.zip_longest(code_cells, range(len(code_cells))):
     source = cell['source']
     try:
         ast_cell = ast.parse(source=source)
-        print(source)
+        print(source + '\n')
     except SyntaxError:
-        print('Parsing failed with SyntaxError')
-        ast_cell = ast.parse(source='\n')
+        print('Cell: Parsing failed with SyntaxError')
+        lst = list(parse_list(source.split('\n')))
+        new_source_code = '\n'.join(lst)
+        ast_cell = ast.parse(source=new_source_code)
+        del lst
+        del new_source_code
     # Save ast itself for the CFG extraction (and data flow)
     body = ast_cell.__dict__['body']
     if len(body) > 0:
@@ -307,9 +331,10 @@ with alive_bar(len(ast_dict_parsed.keys()),
             if isinstance(node, ast.Module):
                 cluster_head = node
                 nodes.append(node_str_generator(node, cell_key))
-            elif isinstance(node, ast.Assign):
-                html_nodes.append(process_node(node, cell_key))
-            elif isinstance(node, ast.Expr):
+            elif isinstance(node, ast.Assign) \
+                    or isinstance(node, ast.Expr) \
+                    or isinstance(node, ast.Import) \
+                    or isinstance(node, ast.ImportFrom):
                 html_nodes.append(process_node(node, cell_key))
             else:
                 nodes.append(node_str_generator(node, cell_key))
@@ -320,8 +345,8 @@ with alive_bar(len(ast_dict_parsed.keys()),
             html_str = attr_dict["label"]
             html_doc += html_str[1:len(html_str) - 1]
 
-        # max_width = 0
-        max_width = get_width_of_table(html_doc)
+        max_width = 0
+        # max_width = get_width_of_table(html_doc)
         for (node_str, attr_dict) in html_nodes:
             label = attr_dict["label"]
             attr_dict["label"] = label.replace("WIDTH=\"\"", "WIDTH=\"" + str(max_width) + "\"")
@@ -387,28 +412,37 @@ dummy_nodes = []
 first = True
 i = 0
 attr = {"color": "grey", "arrowhead": "none", "weight": "3"}
-for x, y in itertools.pairwise(cluster_head_list):
+if len(cluster_head_list) == 1:
+    x = cluster_head_list[0]
     x_str = node_str_generator(x[0], x[1])[0]
-    y_str = node_str_generator(y[0], y[1])[0]
     x_str_ext = x_str + "$line" + str(x[1])
-    y_str_ext = y_str + "$line" + str(y[1])
-    if first:
-        dummy_nodes.append(x_str_ext)
-        first = False
-    dummy_nodes.append(y_str_ext)
     G.add_node(x_str_ext, label="")
-    G.add_node(y_str_ext, label="")
     if not G.has_edge(x_str_ext, x_str):
         G.add_edge(x_str_ext, x_str, style="invis")
-    G.add_edge(last_line_nodes[i], y_str_ext, **attr)
-    if i == len(cluster_head_list) - 2:
-        G.add_edge(y_str_ext, y_str, style="invis")
-    i += 1
+    dummy_nodes.append(x_str + "$line" + str(x[1]))
+else:
+    for x, y in itertools.pairwise(cluster_head_list):
+        x_str = node_str_generator(x[0], x[1])[0]
+        y_str = node_str_generator(y[0], y[1])[0]
+        x_str_ext = x_str + "$line" + str(x[1])
+        y_str_ext = y_str + "$line" + str(y[1])
+        if first:
+            dummy_nodes.append(x_str_ext)
+            first = False
+        dummy_nodes.append(y_str_ext)
+        G.add_node(x_str_ext, label="")
+        G.add_node(y_str_ext, label="")
+        if not G.has_edge(x_str_ext, x_str):
+            G.add_edge(x_str_ext, x_str, style="invis")
+        G.add_edge(last_line_nodes[i], y_str_ext, **attr)
+        if i == len(cluster_head_list) - 2:
+            G.add_edge(y_str_ext, y_str, style="invis")
+        i += 1
 
 # Prepare the head list and extend with dummy nodes
-temp = [node_str_generator(node, cell)[0] for (node, cell) in cluster_head_list]
-assert len(dummy_nodes) == len(line_nodes)
-for dummy, head in itertools.zip_longest(dummy_nodes, temp):
+head_nodes = [node_str_generator(node, cell)[0] for (node, cell) in cluster_head_list]
+# assert len(dummy_nodes) == len(line_nodes)
+for dummy, head in itertools.zip_longest(dummy_nodes, head_nodes):
     G.add_subgraph([dummy, head], rank="same")
 
 for dummy, line in itertools.zip_longest(dummy_nodes, line_nodes):
@@ -424,9 +458,12 @@ color_palette = csv.reader(csv_file, delimiter=' ')
 colors = [c[0] for c in color_palette]
 csv_file.close()
 
-attr = {"constraint": "False"}
+attr = {"constraint": "False", "arrowsize": "0.65"}
 dfg_ex = DataFlowExtractor(ast_dict_parsed)
 dfg_edge_list = dfg_ex.walk_and_get_edges()
+# Save every variable for every node
+node_var_dict = dict()
+
 for n_v_tupleU, n_v_tupleV in dfg_edge_list:
     parent_U = dfg_ex.get_parent_node(n_v_tupleU[0], ast_cfg_nodes_dict[n_v_tupleU[1]])
     parent_V = dfg_ex.get_parent_node(n_v_tupleV[0], ast_cfg_nodes_dict[n_v_tupleV[1]])
@@ -434,6 +471,8 @@ for n_v_tupleU, n_v_tupleV in dfg_edge_list:
         # TODO eval function def edges
         continue
     elif parent_U == parent_V:
+        if n_v_tupleU[1] < n_v_tupleV[1]:
+            print("found" + n_v_tupleU[1] + " " + n_v_tupleV[1])
         continue
     else:
         name = n_v_tupleU[0].id
@@ -446,12 +485,56 @@ for n_v_tupleU, n_v_tupleV in dfg_edge_list:
             look_up_color[name] = color
             attr["color"] = color
             curr_color_i = (curr_color_i + 1) % len(colors)
+        # n_v_tupleX[1] is always the cell number.
+        if int(n_v_tupleU[1]) < int(n_v_tupleV[1]):
+            node_str = head_nodes[int(n_v_tupleV[1])]
+            if node_str in node_var_dict.keys():
+                vari = node_var_dict[node_str]
+                vari.append(name)
+                node_var_dict[node_str] = vari
+            else:
+                node_var_dict[node_str] = [name]
+            # ## ---
+            head = G.get_node(node_str)
+            attrs = head.attr.to_dict()
+            # G.add_node(node_str, **attrs)
+            # ## ---
+            attr_in = attr.copy()
+            attr_in['arrowhead'] = "dot"
+            G.add_edge(node_str_generator(parent_U, n_v_tupleU[1])[0],
+                       node_str,
+                       tailport=trim_string(nameU) + ":" + "s",
+                       headport=trim_string(name + "$input") + ":" + "w",
+                       **attr_in)
 
-        G.add_edge(node_str_generator(parent_U, n_v_tupleU[1])[0],
-                   node_str_generator(parent_V, n_v_tupleV[1])[0],
-                   tailport=trim_string(nameU) + ":" + "s",
-                   headport=trim_string(nameV) + ":" + "n",
-                   **attr)
+            attr_out = attr.copy()
+            attr_out['arrowhead'] = "none"
+            attr_out['arrowtail'] = "dot"
+            attr_out['dir'] = "both"
+            G.add_edge(node_str,
+                       node_str_generator(parent_V, n_v_tupleV[1])[0],
+                       tailport=trim_string(name + "$output") + ":" + "e",
+                       headport=trim_string(nameV) + ":" + "n",
+                       **attr_out)
+        else:
+            G.add_edge(node_str_generator(parent_U, n_v_tupleU[1])[0],
+                       node_str_generator(parent_V, n_v_tupleV[1])[0],
+                       tailport=trim_string(nameU) + ":" + "s",
+                       headport=trim_string(nameV) + ":" + "n",
+                       **attr)
+
+for (key, var_list) in node_var_dict.items():
+    attrs = {'shape': 'plaintext', 'margin': '0.1'}
+    label = "<<TABLE STYLE=\"ROUNDED\" BORDER=\"1\" CELLBORDER=\"0\" CELLSPACING=\"0\" CELLPADDING=\"4\">"
+    for var in var_list:
+        label += "<TR>" \
+                "<TD WIDTH=\"10\" HEIGHT=\"10\" FIXEDSIZE=\"TRUE\" PORT=\"" + trim_string(var + "$input") + "\"></TD>" \
+                "<TD>" + var + "</TD>" \
+                "<TD WIDTH=\"10\" HEIGHT=\"10\" FIXEDSIZE=\"TRUE\" PORT=\"" + trim_string(var + "$output") + "\"></TD>" \
+                "</TR>"
+    label += "</TABLE>>"
+    attrs['label'] = label
+    G.add_node(key, **attrs)
 
 # Layout chosen to be dot
 G.layout(prog='dot')
