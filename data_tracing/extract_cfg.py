@@ -9,6 +9,8 @@ class ControlFlowExtractor:
     def __init__(self, fan_out=1000):
         self.fan_out = fan_out
         self.edge_list_cfg = []
+        self.false_list = []
+        self.true_list = []
 
     def get_nodes(self, skip_module=False):
         """
@@ -150,26 +152,27 @@ class ControlFlowExtractor:
         :return:
         """
         exit_nodes = []
-        attr_edges_dict = {'color': '#00e629', 'style': 'invis'}
-
-        test = nd.__dict__['test']
-        self.edge_list_cfg.append(((nd, test), attr_edges_dict))
+        # attr_edges_dict = {'color': '#00e629', 'style': 'invis'}
+        # test = nd.__dict__['test']
+        # self.edge_list_cfg.append(((nd, test), attr_edges_dict))
 
         body = nd.__dict__['body']
+        self.true_list.extend(body)
         lst = self.create_CFG(body)
         if isinstance(lst, list):
             exit_nodes = lst
         attr_edges_dict = dict()
-        attr_edges_dict['color'] = '#00e629'
-        attr_edges_dict['label'] = 'T'
-        self.edge_list_cfg.append(((test, body[0]), attr_edges_dict))
+        attr_edges_dict['weight'] = str(self.fan_out)
+        attr_edges_dict['style'] = "invis"
+        self.edge_list_cfg.append(((nd, body[0]), attr_edges_dict))
 
         orelse = nd.__dict__['orelse']
+        self.false_list.extend(orelse)
         if len(orelse) > 0:
             attr_edges_dict = dict()
-            attr_edges_dict['label'] = 'F'
-            attr_edges_dict['color'] = '#ff0039'
-            self.edge_list_cfg.append(((test, orelse[0]), attr_edges_dict))
+            attr_edges_dict['weight'] = str(self.fan_out)
+            attr_edges_dict['style'] = "invis"
+            self.edge_list_cfg.append(((body[-1], orelse[0]), attr_edges_dict))
             lst = self.create_CFG(orelse)
             if isinstance(lst, list):
                 exit_nodes += lst
@@ -194,7 +197,7 @@ class ControlFlowExtractor:
             else:
                 attr_edges_dict_cpy = attr_edges_dict.copy()
                 attr_edges_dict_cpy['constraint'] = 'False'
-                # self.edge_list_cfg.append(((exit_node, nd), attr_edges_dict.copy()))
+                self.edge_list_cfg.append(((exit_node, nd), attr_edges_dict.copy()))
         return exit_nodes
 
     def get_exit_nodes_FUNCTION(self, nd: ast.FunctionDef):

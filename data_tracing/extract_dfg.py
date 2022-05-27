@@ -4,6 +4,20 @@ import itertools
 import itertools as itera
 
 
+def child_iter_return(p_nd, node, compare):
+    """
+
+    :param compare:
+    :param p_nd: node to iterate over
+    :param node: Compare node
+    :return: Potential parent node
+    """
+    for child in ast.walk(p_nd):
+        if compare(node, child):
+            return p_nd
+    return None
+
+
 class DataFlowExtractor:
     """
     Class to extract the data flow based on an AST of all the cells in the jupyter notebook.
@@ -95,9 +109,10 @@ class DataFlowExtractor:
                 # ast.Del   -> Variable will be destroyed for the remaining script
                 break
 
-    def get_parent_node(self, node: ast.AST, ast_nodes: [ast.AST]):
+    def get_parent_node(self, node: ast.AST, ast_nodes: [ast.AST], compare=lambda x, y: x == y):
         """
 
+        :param compare:
         :param ast_nodes:
         :param node:
         """
@@ -107,10 +122,22 @@ class DataFlowExtractor:
                     cpy = copy.deepcopy(ast_node)
                     cpy.body.clear()
                     for child in ast.walk(cpy):
-                        if node == child:
+                        if compare(node, child):
                             return ast_node
+                elif isinstance(ast_node, ast.If):
+                    # If variable is in test then it can't be in the body or "orelse" part.
+                    for component in [ast_node.body, ast_node.orelse, ast_node]:
+                        if isinstance(component, list):
+                            for line in component:
+                                parent = child_iter_return(line, node, compare)
+                                if parent is not None:
+                                    return parent
+                        else:
+                            parent = child_iter_return(component, node, compare)
+                            if parent is not None:
+                                return parent
                 else:
                     for child in ast.walk(ast_node):
-                        if node == child:
+                        if compare(node, child):
                             return ast_node
         return None

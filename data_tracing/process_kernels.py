@@ -6,17 +6,59 @@ import itertools
 import subprocess
 import time
 import pygraphviz as pgv
+import matplotlib.pyplot as plt
+import squarify
 
-from typing import Callable
 from nbformat import read, NO_CONVERT
 from data_tracing.extract_cfg import ControlFlowExtractor
 from data_tracing.extract_dfg import DataFlowExtractor
 from alive_progress import alive_bar
 
-type_check_ld_st: Callable[[ast.AST], bool] = lambda arg: not (isinstance(arg, ast.Load)
-                                                               or isinstance(arg, ast.Store)
-                                                               or isinstance(arg, ast.operator)
-                                                               or isinstance(arg, ast.unaryop))
+type_check_ld_st = lambda arg: not (isinstance(arg, ast.Load)
+                                    or isinstance(arg, ast.Store)
+                                    or isinstance(arg, ast.operator)
+                                    or isinstance(arg, ast.unaryop))
+
+
+def cmp_on_id_lvl(nd_x, nd_y):
+    """
+
+    :param nd_x:
+    :param nd_y:
+    :return:
+    """
+    if isinstance(nd_x, ast.Name) and isinstance(nd_y, ast.Name):
+        return nd_x.id == nd_y.id
+    else:
+        return False
+
+
+def count_name_occurence(alias_: str, cell_: ast.AST):
+    """
+    Counts occurrences of every alias in the AST of one cell. Returns the count.
+
+    :param alias_: alias to count over
+    :param cell_: ast with nodes to iterate over
+    """
+    counter = 0
+    for child_ in ast.walk(cell_):
+        if isinstance(child_, ast.Name):
+            if child_.id == alias_:
+                counter += 1
+    return counter
+
+
+def get_all_alias(cell_: ast.AST):
+    """
+
+    :param cell_:
+    """
+    for child_ in ast.walk(cell_):
+        if isinstance(child_, ast.alias):
+            if child_.asname is not None:
+                yield child_.asname
+            else:
+                yield child_.name
 
 
 def node_str_generator(ast_node, current_cell):
@@ -185,24 +227,30 @@ def process_node(node, cell_key):
     dfg_ex = DataFlowExtractor(node)
     attr_node_dict = {"shape": "plaintext", "margin": "0.1"}
     if isinstance(node, ast.Assign):
-        dfg_node_list = dfg_ex.walk_tree_by_name(no_dict=True, ast=node, cell_num=cell_key, to_exclude=node.targets)
+        to_exclude = []
+        for target in node.targets:
+            for child in ast.walk(target):
+                if isinstance(child, ast.Name):
+                    to_exclude.append(child)
+        dfg_node_list = dfg_ex.walk_tree_by_name(no_dict=True, ast=node, cell_num=cell_key, to_exclude=to_exclude)
         rowspan = 2
         if len(dfg_node_list) == 0:
             rowspan = 1
         target_string = "<<TABLE WIDTH=\"\" BORDER=\"0\" CELLBORDER=\"1\" CELLSPACING=\"4\" CELLPADDING=\"4\">" \
                         + "<TR>" \
-                        + "".join(["<TD ROWSPAN=\"" + str(rowspan) + "\" PORT=\"" + trim_string(node_str_generator(n, cell_key)[0])
+                        + "".join(["<TD STYLE=\"ROUNDED\" ROWSPAN=\"" + str(rowspan)
+                                   + "\" PORT=\"" + trim_string(node_str_generator(n, cell_key)[0])
                                    + "\">"
                                    + prepare_html((node_str_generator(n, cell_key)[1])["label"])
                                    + "</TD>"
-                                   for n in node.targets]) \
-                        + "<TD COLSPAN=\"" + str(max(1, len(dfg_node_list))) + "\">" \
+                                   for n in to_exclude]) \
+                        + "<TD STYLE=\"ROUNDED\" COLSPAN=\"" + str(max(1, len(dfg_node_list))) + "\">" \
                         + prepare_html((node_str_generator(node.value, cell_key)[1])["label"]) \
                         + "</TD>" \
                         + "</TR>"
         used_var_str = ""
         if len(dfg_node_list) > 0:
-            used_var_str += "<TR>" + "".join(["<TD PORT=\""
+            used_var_str += "<TR>" + "".join(["<TD STYLE=\"ROUNDED\" PORT=\""
                                               + trim_string(node_str_generator(n, int(val))[0])
                                               + "\">"
                                               + prepare_html((node_str_generator(n, int(val))[1])["label"])
@@ -213,10 +261,12 @@ def process_node(node, cell_key):
     elif isinstance(node, ast.Expr):
         dfg_node_list = dfg_ex.walk_tree_by_name(no_dict=True, ast=node, cell_num=cell_key, to_exclude=[])
         label = prepare_html((node_str_generator(node, cell_key)[1])["label"])
-        label = "<<TABLE WIDTH=\"\" BORDER=\"0\" CELLBORDER=\"1\" CELLSPACING=\"4\" CELLPADDING=\"4\">" \
-                + "<TR><TD COLSPAN=\"" + str(max(1, len(dfg_node_list))) + "\">" + label + "</TD></TR>"
+        label = "<<TABLE WIDTH=\"\" BORDER=\"0\" CELLBORDER=\"1\" CELLSPACING=\"4\" " \
+                + "CELLPADDING=\"4\">" \
+                + "<TR><TD STYLE=\"ROUNDED\" COLSPAN=\"" \
+                + str(max(1, len(dfg_node_list))) + "\">" + label + "</TD></TR>"
         if len(dfg_node_list) > 0:
-            label += "<TR>" + "".join(["<TD PORT=\""
+            label += "<TR>" + "".join(["<TD STYLE=\"ROUNDED\" PORT=\""
                                        + trim_string(node_str_generator(var, cell_key)[0])
                                        + "\">"
                                        + prepare_html(((node_str_generator(var, cell_num))[1])["label"])
@@ -227,21 +277,53 @@ def process_node(node, cell_key):
         attr_node_dict["label"] = label
     elif isinstance(node, ast.Import) or isinstance(node, ast.ImportFrom):
         # Alias are not tracked throughout the document
-        label = "<<TABLE WIDTH=\"\" BORDER=\"0\" CELLBORDER=\"1\" CELLSPACING=\"4\" CELLPADDING=\"4\">" \
-                + "<TR><TD>" + prepare_html((node_str_generator(node, cell_key)[1])["label"]) \
+        label = "<<TABLE STYLE=\"ROUNDED\" WIDTH=\"\" BORDER=\"0\" CELLBORDER=\"1\" CELLSPACING=\"4\" " \
+                + "CELLPADDING=\"4\">" \
+                + "<TR><TD STYLE=\"ROUNDED\">" + prepare_html((node_str_generator(node, cell_key)[1])["label"]) \
                 + "</TD></TR></TABLE>>"
         attr_node_dict["label"] = label
+    elif isinstance(node, ast.If) or isinstance(node, ast.For):
+        table_head = "IF"
+        to_exclude = []
+        if isinstance(node, ast.For):
+            table_head = "FOR"
+            test = node
+            for line in test.body:
+                for child in ast.walk(line):
+                    if isinstance(child, ast.Name):
+                        to_exclude.append(child)
+        else:
+            test = node.__dict__['test']
+        dfg_node_list = dfg_ex.walk_tree_by_name(no_dict=True, ast=test, cell_num=cell_key, to_exclude=to_exclude)
+        label = prepare_html((node_str_generator(test, cell_key)[1])["label"])
+        rowspan = 2
+        if len(dfg_node_list) == 0:
+            rowspan = 1
+        label = "<<TABLE WIDTH=\"\" BORDER=\"0\" CELLBORDER=\"1\" CELLSPACING=\"4\" CELLPADDING=\"4\">" \
+                + "<TR><TD STYLE=\"ROUNDED\" ROWSPAN=\"" + str(rowspan) + "\">" + table_head + "</TD>" \
+                + "<TD STYLE=\"ROUNDED\" COLSPAN=\"" \
+                + str(max(1, len(dfg_node_list))) + "\">" + label + "</TD></TR>"
+        if len(dfg_node_list) > 0:
+            label += "<TR>" + "".join(["<TD STYLE=\"ROUNDED\" PORT=\""
+                                       + trim_string(node_str_generator(var, cell_key)[0])
+                                       + "\">"
+                                       + prepare_html(((node_str_generator(var, cell_num))[1])["label"])
+                                       + "</TD>"
+                                       for var, cell_num in dfg_node_list]) + "</TR></TABLE>>"
+        else:
+            label += "</TABLE>>"
+        attr_node_dict["label"] = label
+
     return node_str_generator(node, cell_key)[0], attr_node_dict
 
 
-# file = 'data_vis_exer_1'
-file = 'comprehensive-data-exploration-with-python'
+# file = 'comprehensive-data-exploration-with-python'
+file = 'example_notebook'
 
 ext = '.ipynb'
 path = '../notebooks/'
 dir_list = os.listdir(path)
-print(dir_list)
-# TODO: Convert all
+print("Files in directory:\n" + "\n".join(dir_list) + "\n")
 
 with open(path + file + ext) as fp:
     notebook = read(fp, NO_CONVERT)
@@ -263,7 +345,7 @@ for cell, i in itertools.zip_longest(code_cells, range(len(code_cells))):
     source = cell['source']
     try:
         ast_cell = ast.parse(source=source)
-        print(source + '\n')
+        # print(source + '\n')
     except SyntaxError:
         print('Cell: Parsing failed with SyntaxError')
         lst = list(parse_list(source.split('\n')))
@@ -305,7 +387,6 @@ cfg_ex = ControlFlowExtractor()
 line_nodes = []
 last_line_nodes = []
 
-print()
 with alive_bar(len(ast_dict_parsed.keys()),
                theme='smooth',
                stats=False,
@@ -327,14 +408,49 @@ with alive_bar(len(ast_dict_parsed.keys()),
 
         # html nodes
         html_nodes = []
+        skip_first_cell = False
+
+        if cell_key == str(0):
+            if all(map(lambda elem: isinstance(elem, ast.Import)
+                                    or isinstance(elem, ast.ImportFrom),
+                       cfg_ex.get_nodes(skip_module=True))):
+                skip_first_cell = True
+                list_of_alias = [alias for alias in get_all_alias(ast_cell)]
+                occurence_dict = {key: 0 for key in list_of_alias}
+                for cell_num in range(1, len(ast_dict_parsed.keys())):
+                    ast_cell_ = ast_dict_parsed[str(cell_num)]
+                    for alias in list_of_alias:
+                        count = count_name_occurence(alias, ast_cell_)
+                        occurence_dict[alias] += count
+                labels = [key + "(" + str(value) + ")" for key, value in zip(occurence_dict.keys(),
+                                                                             occurence_dict.values())]
+                squarify.plot(sizes=occurence_dict.values(), label=labels, alpha=0.6)
+                plt.axis('off')
+                image_path = '../output/plot_' + file + '.png'
+                plt.savefig(image_path, bbox_inches='tight')
+                edge_list = list(filter(lambda elem: isinstance((elem[0])[0], ast.Module), edge_list))
+                if len(edge_list) == 1:
+                    node = ((edge_list[0])[0])[1]
+                    node_str, attr_dict = node_str_generator(node, cell_key)
+                    attr_dict['label'] = ''
+                    attr_dict['image'] = image_path
+                    G.add_node(node_str, **attr_dict)
+                    cfg_ex.edge_list_cfg = edge_list
+                    ast_cfg_nodes_dict[cell_key] = [node]
         for node in cfg_ex.get_nodes():
             if isinstance(node, ast.Module):
                 cluster_head = node
                 nodes.append(node_str_generator(node, cell_key))
-            elif isinstance(node, ast.Assign) \
-                    or isinstance(node, ast.Expr) \
-                    or isinstance(node, ast.Import) \
-                    or isinstance(node, ast.ImportFrom):
+            elif isinstance(node, ast.Assign) or isinstance(node, ast.Expr):
+                html_nodes.append(process_node(node, cell_key))
+            elif isinstance(node, ast.Import) or isinstance(node, ast.ImportFrom):
+                if not skip_first_cell:
+                    html_nodes.append(process_node(node, cell_key))
+                else:
+                    node_str, attr_dict = node_str_generator(node, cell_key)
+                    attr_dict['label'] = ""
+                    nodes.append((node_str, attr_dict))
+            elif isinstance(node, ast.If) or isinstance(node, ast.For):
                 html_nodes.append(process_node(node, cell_key))
             else:
                 nodes.append(node_str_generator(node, cell_key))
@@ -345,8 +461,11 @@ with alive_bar(len(ast_dict_parsed.keys()),
             html_str = attr_dict["label"]
             html_doc += html_str[1:len(html_str) - 1]
 
-        max_width = 0
-        # max_width = get_width_of_table(html_doc)
+        # max_width = 0
+        if html_doc == "":
+            max_width = 0
+        else:
+            max_width = get_width_of_table(html_doc)
         for (node_str, attr_dict) in html_nodes:
             label = attr_dict["label"]
             attr_dict["label"] = label.replace("WIDTH=\"\"", "WIDTH=\"" + str(max_width) + "\"")
@@ -361,21 +480,29 @@ with alive_bar(len(ast_dict_parsed.keys()),
             label_ext = ""
             lineno = str(node.__dict__["lineno"])
             end_lineno = str(node.__dict__["end_lineno"])
-            if lineno == end_lineno:
-                label_ext += lineno
-            else:
-                label_ext += lineno + " - " + end_lineno
+            # if lineno == end_lineno:
+            label_ext += lineno
+            # else:
+            #     label_ext += lineno + "-" + end_lineno
             node_str = node_str_generator(node, cell_key)[0] + "$line" + label_ext
             if first:
                 line_nodes.append(node_str)
                 first = False
             if cell_num == len(cfg_nodes_sorted) - 1:
                 last_line_nodes.append(node_str)
+            color = "grey"
+            if node in cfg_ex.true_list:
+                color = "green"
+            elif node in cfg_ex.false_list:
+                color = "red"
+            font_string = "<B>Line</B> " + label_ext + ":"
+            if int(cell_key) == 0:
+                font_string = " "
             nodes.append((node_str,
                           {
-                              "label": "<<FONT COLOR=\"grey\" FACE=\"Monospace\"><B>Line</B> " + label_ext + ":" + "</FONT>>",
+                              "label": "<<FONT COLOR=\"grey\" FACE=\"Monospace\">" + font_string + "</FONT>>",
                               "shape": "plaintext"}))
-            edge_list.append(((node_str, node), {"color": "grey", "constraint": "False", "arrowhead": "none"}))
+            edge_list.append(((node_str, node), {"color": color, "constraint": "False", "arrowhead": "none"}))
             if previous_node_str is not None:
                 edge_list.append(((previous_node_str, node_str),
                                   {"color": "grey",
@@ -467,6 +594,10 @@ node_var_dict = dict()
 for n_v_tupleU, n_v_tupleV in dfg_edge_list:
     parent_U = dfg_ex.get_parent_node(n_v_tupleU[0], ast_cfg_nodes_dict[n_v_tupleU[1]])
     parent_V = dfg_ex.get_parent_node(n_v_tupleV[0], ast_cfg_nodes_dict[n_v_tupleV[1]])
+    if parent_U is None:
+        parent_U = dfg_ex.get_parent_node(n_v_tupleU[0], ast_cfg_nodes_dict[n_v_tupleU[1]], compare=cmp_on_id_lvl)
+    elif parent_V is None:
+        parent_V = dfg_ex.get_parent_node(n_v_tupleV[0], ast_cfg_nodes_dict[n_v_tupleV[1]], compare=cmp_on_id_lvl)
     if parent_V is None or parent_U is None:
         # TODO eval function def edges
         continue
@@ -494,11 +625,8 @@ for n_v_tupleU, n_v_tupleV in dfg_edge_list:
                 node_var_dict[node_str] = vari
             else:
                 node_var_dict[node_str] = [name]
-            # ## ---
             head = G.get_node(node_str)
             attrs = head.attr.to_dict()
-            # G.add_node(node_str, **attrs)
-            # ## ---
             attr_in = attr.copy()
             attr_in['arrowhead'] = "dot"
             G.add_edge(node_str_generator(parent_U, n_v_tupleU[1])[0],
@@ -508,7 +636,7 @@ for n_v_tupleU, n_v_tupleV in dfg_edge_list:
                        **attr_in)
 
             attr_out = attr.copy()
-            attr_out['arrowhead'] = "none"
+            attr_out['arrowhead'] = "normal"
             attr_out['arrowtail'] = "dot"
             attr_out['dir'] = "both"
             G.add_edge(node_str,
@@ -528,10 +656,11 @@ for (key, var_list) in node_var_dict.items():
     label = "<<TABLE STYLE=\"ROUNDED\" BORDER=\"1\" CELLBORDER=\"0\" CELLSPACING=\"0\" CELLPADDING=\"4\">"
     for var in var_list:
         label += "<TR>" \
-                "<TD WIDTH=\"10\" HEIGHT=\"10\" FIXEDSIZE=\"TRUE\" PORT=\"" + trim_string(var + "$input") + "\"></TD>" \
-                "<TD>" + var + "</TD>" \
-                "<TD WIDTH=\"10\" HEIGHT=\"10\" FIXEDSIZE=\"TRUE\" PORT=\"" + trim_string(var + "$output") + "\"></TD>" \
-                "</TR>"
+                 + "<TD WIDTH=\"10\" HEIGHT=\"10\" FIXEDSIZE=\"TRUE\" PORT=\"" + trim_string(var + "$input") \
+                 + "\"></TD>" \
+                 + "<TD>" + var + "</TD>" \
+                 + "<TD WIDTH=\"10\" HEIGHT=\"10\" FIXEDSIZE=\"TRUE\" PORT=\"" \
+                 + trim_string(var + "$output") + "\"></TD></TR>"
     label += "</TABLE>>"
     attrs['label'] = label
     G.add_node(key, **attrs)
@@ -540,5 +669,5 @@ for (key, var_list) in node_var_dict.items():
 G.layout(prog='dot')
 
 # Write graph to a png file
-G.draw('../output/ast_' + file + '.pdf')
-quit("EOF")
+G.draw('../output/vis_' + file + '.pdf')
+print("EOF")

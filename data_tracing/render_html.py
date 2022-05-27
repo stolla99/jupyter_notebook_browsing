@@ -2,7 +2,7 @@
 Script is called from subprocess in e.g. process_kernels.py to render and get information of
 an HTML element.
 """
-import asyncio
+from asyncio import set_event_loop_policy, WindowsSelectorEventLoopPolicy
 import sys
 from requests_html import HTML
 
@@ -37,7 +37,7 @@ def start_html(arg):
 
 
 if __name__ == '__main__':
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    set_event_loop_policy(WindowsSelectorEventLoopPolicy())
     x = start_html(sys.argv[1])
     print(x)
     quit(1)
