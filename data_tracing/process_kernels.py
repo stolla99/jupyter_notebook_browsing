@@ -502,11 +502,11 @@ if __name__ == "__main__":
                 html_str = attr_dict["label"]
                 html_doc += html_str[1:len(html_str) - 1]
 
-            # max_width = 0
-            if html_doc == "":
+            max_width = 0
+            """if html_doc == "":
                 max_width = 0
             else:
-                max_width = get_width_of_table(html_doc)
+                max_width = get_width_of_table(html_doc)"""
             for (node_str, attr_dict) in html_nodes:
                 label = attr_dict["label"]
                 attr_dict["label"] = label.replace("WIDTH=\"\"", "WIDTH=\"" + str(max_width) + "\"")
@@ -725,4 +725,5 @@ if __name__ == "__main__":
 
     # Write graph to a png file
     G.draw('../output/vis_' + file + '.pdf')
+    G.draw('../output/vis_' + file + '.png')
     print("EOF")
