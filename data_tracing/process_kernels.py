@@ -1,20 +1,20 @@
+import ast
 import copy
 import csv
-import os
-import ast
 import itertools
+import os
 import subprocess
 import time
-import pygraphviz as pgv
-import matplotlib.pyplot as plt
-import squarify
-import sys
 
-from nbformat import read, NO_CONVERT
-from data_tracing.extract_cfg import ControlFlowExtractor
-from data_tracing.extract_dfg import DataFlowExtractor
+import matplotlib.pyplot as plt
+import pygraphviz as pgv
+import squarify
 from alive_progress import alive_bar
 from bs4 import BeautifulSoup
+from nbformat import read, NO_CONVERT
+
+from data_tracing.extract_cfg import ControlFlowExtractor
+from data_tracing.extract_dfg import DataFlowExtractor
 
 type_check_ld_st = lambda arg: not (isinstance(arg, ast.Load)
                                     or isinstance(arg, ast.Store)
@@ -575,7 +575,8 @@ if __name__ == "__main__":
         name = 'Cell ' + cell_key
         G.subgraph(list(map(lambda elem: elem[0], n_e_tuple)), name="cluster" + cell_key, label=name)
 
-    # Ensure that cells are displayed from left to right in the graph => Place Module node of every cell onto the same level
+    # Ensure that cells are displayed from left to right in the graph => Place Module node of every cell onto the
+    # same level
     dummy_nodes = []
     first = True
     i = 0
