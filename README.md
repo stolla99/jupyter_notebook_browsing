@@ -1,4 +1,4 @@
-# Visualization Tool for Jupyter Notebooks based on Abstract Syntax Analysis
+# Visualization Tool for Jupyter Notebooks based on Abstract Syntax Trees
 This is the implementation of the thesis with the title "Exploring Jupyter Notebooks by Visualizing Data Flow Paths from Abstract Syntax Trees." The visualization is the output and is based on abstract syntax trees of the notebook and its code. It allows users to understand code faster through data flow paths and control flow paths in the visualization.
 ## Requirements
 The following external libraries are required to use the visualization tool:
